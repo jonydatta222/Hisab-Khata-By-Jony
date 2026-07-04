@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Landmark, Coins, X, Check, Edit2, Trash2 } from 'lucide-react';
+import { Search, Landmark, Coins, X, Check, Edit2, Trash2, Clock } from 'lucide-react';
 import { CustomerDue } from '../types';
-import { formatCurrency, toBanglaNumber } from '../utils';
+import { formatCurrency, toBanglaNumber, formatDate, formatTimeStr } from '../utils';
 
 interface DueListProps {
   dueList: CustomerDue[];
@@ -87,7 +87,7 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-150 p-5 shadow-sm">
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-3xs">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
           <h3 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-2">
@@ -147,26 +147,53 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
                       : 'border-slate-100 bg-rose-50/10 hover:bg-rose-50/20 hover:border-rose-100/60'
                   }`}
                 >
+                  {/* Main card row: Info on left, Actions on right */}
                   <div className="flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="p-1 bg-rose-50 text-rose-600 rounded-md shrink-0">
+                    <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                      <span className="p-1 bg-rose-50 text-rose-600 rounded-md shrink-0 mt-0.5">
                         <Landmark className="h-3.5 w-3.5" />
                       </span>
                       <div className="min-w-0">
                         <h4 className="text-xs font-bold text-slate-800 truncate" title={cd.name}>{cd.name}</h4>
-                        <p className="text-[9px] text-slate-400 truncate">
-                          {isBangla ? 'বাকি ব্যালেন্স' : 'Due Balance'}
-                        </p>
+                        <div className="flex items-center gap-1 text-[10px] text-slate-500 font-bold">
+                          <span>{isBangla ? 'বাকি:' : 'Due:'}</span>
+                          <span className="text-rose-600 font-black">{formatCurrency(cd.amount, isBangla)}</span>
+                        </div>
+
                       </div>
                     </div>
-                    <span className="text-xs sm:text-sm font-extrabold text-rose-600 shrink-0">
-                      {formatCurrency(cd.amount, isBangla)}
-                    </span>
+
+                    {/* Show action triggers side-by-side when not in active form mode */}
+                    {!isEditing && !isDeleting && !isDepositing && (
+                      <div className="flex items-center gap-0.5 shrink-0 bg-slate-50/50 p-0.5 rounded-lg border border-slate-100">
+                        <button
+                          onClick={() => startRename(cd)}
+                          className="p-1 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors cursor-pointer"
+                          title={isBangla ? 'নাম পরিবর্তন' : 'Rename Customer'}
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => startDeleteConfirm(cd)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                          title={isBangla ? 'মুছে ফেলুন' : 'Delete Customer'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => startDeposit(cd)}
+                          className="text-[9px] text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/85 px-1.5 py-1 rounded font-bold flex items-center gap-0.5 transition-all cursor-pointer shadow-3xs"
+                        >
+                          <Coins className="h-2.5 w-2.5" />
+                          <span>{isBangla ? 'জমা' : 'Deposit'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  {isEditing ? (
+                  {isEditing && (
                     // Rename Inline Mode
-                    <div className="space-y-1.5 pt-1.5 border-t border-teal-100">
+                    <div className="space-y-1.5 pt-1.5 border-t border-teal-100 mt-1">
                       <div className="flex items-center gap-1.5">
                         <input
                           type="text"
@@ -191,9 +218,11 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
                         </button>
                       </div>
                     </div>
-                  ) : isDeleting ? (
+                  )}
+
+                  {isDeleting && (
                     // Delete Confirmation Mode
-                    <div className="space-y-1.5 pt-1.5 border-t border-rose-100">
+                    <div className="space-y-1.5 pt-1.5 border-t border-rose-100 mt-1">
                       <p className="text-[9px] text-rose-700 font-bold leading-tight">
                         {isBangla ? 'গ্রাহকের সকল হিসাব ডিলিট করতে চান?' : 'Delete all dues for this customer?'}
                       </p>
@@ -215,9 +244,11 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
                         </button>
                       </div>
                     </div>
-                  ) : isDepositing ? (
+                  )}
+
+                  {isDepositing && (
                     // Deposit Inline Mode
-                    <div className="space-y-1.5 pt-1.5 border-t border-emerald-100">
+                    <div className="space-y-1.5 pt-1.5 border-t border-emerald-100 mt-1">
                       <div className="flex items-center gap-1.5">
                         <input
                           type="number"
@@ -247,34 +278,6 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
                       {errorMsg && (
                         <p className="text-[9px] text-rose-600 font-bold">{errorMsg}</p>
                       )}
-                    </div>
-                  ) : (
-                    // Edit, Delete, Deposit triggers
-                    <div className="flex items-center justify-between border-t border-dashed border-slate-100/60 pt-1.5">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => startRename(cd)}
-                          className="p-1 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors cursor-pointer"
-                          title={isBangla ? 'নাম পরিবর্তন' : 'Rename Customer'}
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => startDeleteConfirm(cd)}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
-                          title={isBangla ? 'মুছে ফেলুন' : 'Delete Customer'}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-
-                      <button
-                        onClick={() => startDeposit(cd)}
-                        className="text-[10px] text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-2 py-0.5 rounded-md font-bold flex items-center gap-1 transition-all cursor-pointer"
-                      >
-                        <Coins className="h-3 w-3" />
-                        <span>{isBangla ? 'জমা' : 'Deposit'}</span>
-                      </button>
                     </div>
                   )}
                 </motion.div>

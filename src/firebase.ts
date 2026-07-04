@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { initializeFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
 import { Transaction, Expense } from './types';
@@ -14,8 +14,10 @@ const app = initializeApp({
   appId: firebaseConfig.appId,
 });
 
-// Initialize Firestore with custom database ID if provided
-const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
+// Initialize Firestore with custom database ID if provided, using force long polling for reliable iframe connections
+const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId || '(default)');
 const auth = getAuth(app);
 
 export { app, db, auth };

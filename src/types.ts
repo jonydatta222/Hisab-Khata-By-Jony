@@ -26,4 +26,6 @@ export interface DailySummary {
 export interface CustomerDue {
   name: string;
   amount: number;
+  lastDate?: string;
+  lastTime?: string;
 }

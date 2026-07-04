@@ -41,15 +41,15 @@ export default function StatCard({
     >
       <div className="flex items-center justify-between gap-1">
         <div className="min-w-0 flex-1">
-          <span className={`text-[8px] sm:text-[9px] font-extrabold uppercase tracking-widest block truncate ${textColor}`}>
+          <span className={`text-[10px] sm:text-xs font-black uppercase tracking-wider block truncate ${textColor}`}>
             {title}
           </span>
-          <span className="text-xs sm:text-sm font-black font-sans tracking-tight text-slate-950 block mt-0.5 truncate">
+          <span className="text-sm sm:text-base font-black font-sans tracking-tight text-slate-950 block mt-0.5 truncate">
             {formatCurrency(amount, isBangla)}
           </span>
         </div>
         <span className={`p-0.5 rounded bg-white/80 border border-slate-100/50 shrink-0 ${iconColor}`}>
-          <Icon className="h-3 w-3" />
+          <Icon className="h-3.5 w-3.5" />
         </span>
       </div>
     </motion.div>

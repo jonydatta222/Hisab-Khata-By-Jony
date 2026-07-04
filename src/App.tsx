@@ -48,6 +48,7 @@ import Calculator from './components/Calculator';
 import StatCard from './components/StatCard';
 import TransactionList from './components/TransactionList';
 import DueList from './components/DueList';
+import ExpenseList from './components/ExpenseList';
 
 export default function App() {
   // --- States ---
@@ -469,31 +470,46 @@ export default function App() {
   // --- Global Customer Due Calculation across all time ---
   // Calculates live customer due lists dynamically from all recorded transactions.
   const getCustomerDues = (): CustomerDue[] => {
-    const duesMap: Record<string, number> = {};
+    const duesMap: Record<string, { amount: number; lastDate: string; lastTime: string }> = {};
     
     // Sort transactions chronologically to build correct cumulative balances
-    const sortedTxs = [...transactions].sort((a, b) => a.time.localeCompare(b.time));
+    const sortedTxs = [...transactions].sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      return a.time.localeCompare(b.time);
+    });
     
     sortedTxs.forEach((tx) => {
       if (!tx.product || !tx.product.trim()) return;
+      const name = tx.customer.trim();
+      if (!name) return;
       
       if (!tx.isCash) {
         // Due taken (increases balance)
-        const name = tx.customer.trim();
-        if (name) {
-          duesMap[name] = (duesMap[name] || 0) + tx.amount;
+        if (!duesMap[name]) {
+          duesMap[name] = { amount: 0, lastDate: '', lastTime: '' };
         }
+        duesMap[name].amount += tx.amount;
+        duesMap[name].lastDate = tx.date;
+        duesMap[name].lastTime = tx.time;
       } else if (tx.product.startsWith('বাকির টাকা জমা') || tx.product.startsWith('বাকি টাকা জমা') || tx.product.includes('Due Deposit')) {
         // Due deposit payment (reduces balance)
-        const name = tx.customer.trim();
-        if (name) {
-          duesMap[name] = (duesMap[name] || 0) - tx.amount;
+        if (!duesMap[name]) {
+          duesMap[name] = { amount: 0, lastDate: '', lastTime: '' };
         }
+        duesMap[name].amount -= tx.amount;
+        duesMap[name].lastDate = tx.date;
+        duesMap[name].lastTime = tx.time;
       }
     });
 
     return Object.keys(duesMap)
-      .map((name) => ({ name, amount: duesMap[name] }))
+      .map((name) => ({
+        name,
+        amount: duesMap[name].amount,
+        lastDate: duesMap[name].lastDate,
+        lastTime: duesMap[name].lastTime,
+      }))
       .filter((cd) => cd.amount > 0);
   };
 
@@ -593,6 +609,27 @@ export default function App() {
     setIsExpenseModalOpen(false);
 
     showToast(isBangla ? 'আজকের খরচ হিসাবভুক্ত হয়েছে!' : 'Expense saved successfully!');
+  };
+
+  // Delete expense
+  const handleDeleteExpense = (id: string) => {
+    const confirmation = window.confirm(
+      isBangla
+        ? 'আপনি কি নিশ্চিতভাবে এই খরচের হিসাবটি মুছে ফেলতে চান?'
+        : 'Are you sure you want to delete this expense?'
+    );
+    if (!confirmation) return;
+
+    const updated = expenses.filter((ex) => ex.id !== id);
+    saveExpensesToStorage(updated);
+    showToast(isBangla ? 'খরচের হিসাবটি মুছে ফেলা হয়েছে' : 'Expense entry deleted');
+  };
+
+  // Update expense
+  const handleUpdateExpense = (updatedEx: Expense) => {
+    const updated = expenses.map((ex) => (ex.id === updatedEx.id ? updatedEx : ex));
+    saveExpensesToStorage(updated);
+    showToast(isBangla ? 'খরচের হিসাবটি আপডেট করা হয়েছে' : 'Expense entry updated');
   };
 
   // Handle Due Deposit (বাকির টাকা জমা)
@@ -752,46 +789,54 @@ export default function App() {
       </AnimatePresence>
 
       {/* --- App Header & Action Bar --- */}
-      <header className="bg-white border-b border-slate-200/80 sticky top-0 z-40 py-2">
-        <div className="max-w-7xl mx-auto px-3 flex items-center justify-between gap-2">
+      <header className="bg-white border-b border-slate-200/80 sticky top-0 z-40 py-2 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 flex items-center justify-between gap-3">
           
           {/* Brand Logo & Name */}
           <div className="flex items-center gap-2">
             <div className="p-1.5 bg-[#102A43] text-emerald-300 rounded-lg shadow-sm border border-[#1F3A52] shrink-0">
-              <BookOpen className="h-4.5 w-4.5 stroke-[2]" />
+              <BookOpen className="h-4.5 w-4.5 stroke-[2.5]" />
             </div>
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-1">
-                <h1 className="text-xs sm:text-sm font-black tracking-tight text-slate-900 font-sans leading-tight">
+                <h1 className="text-sm sm:text-base font-black tracking-tight text-slate-900 font-sans leading-none">
                   {isBangla ? 'হিসাব খাতা' : 'Hisab Khata'}
                 </h1>
-                <span className="text-[7px] font-extrabold text-teal-600 bg-teal-50 border border-teal-200/55 px-1 py-0.1 rounded-xs uppercase">
+                <span className="text-[7px] sm:text-[8px] font-black text-teal-700 bg-teal-50 border border-teal-200/60 px-1 py-0.2 rounded uppercase leading-none">
                   {isBangla ? 'ডিজিটাল' : 'Pro'}
                 </span>
               </div>
-              <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 truncate max-w-[130px] sm:max-w-[200px]" id="shop-name-title">
+              <span className="text-[10px] sm:text-xs font-bold text-slate-500 truncate mt-0.5 max-w-[130px] sm:max-w-[200px]" id="shop-name-title">
                 {shopName || (isBangla ? 'মেসার্স জনি ট্রেডার্স' : 'M/S Jony Traders')}
               </span>
             </div>
           </div>
 
           {/* Header Action Tools */}
-          <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             
             {/* Real-time Date & Clock above buttons */}
-            <div className="flex items-center gap-1 text-[9px] sm:text-[10px] text-slate-500 font-mono bg-slate-50 border border-slate-200/60 px-1.5 py-0.5 rounded-md select-none">
-              <Clock className="h-2.5 w-2.5 text-slate-400" />
-              <span className="font-semibold text-slate-600">
+            <div className="hidden md:flex items-center gap-1.5 text-[10px] text-slate-500 font-mono bg-slate-50 border border-slate-200/60 px-2 py-1 rounded-md select-none">
+              <Clock className="h-3 w-3 text-slate-400" />
+              <span className="font-bold text-slate-600">
                 {currentDateFormatted} • {isBangla ? toBanglaNumber(currentTime) : currentTime}
               </span>
             </div>
 
             {/* Action Buttons row */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
+              {/* Mobile Only Clock block */}
+              <div className="md:hidden flex items-center gap-1 text-[9px] text-slate-500 font-mono bg-slate-50 border border-slate-200 px-1.5 py-1 rounded-md select-none">
+                <span className="font-bold text-slate-600">
+                  {isBangla ? toBanglaNumber(currentTime) : currentTime}
+                </span>
+              </div>
+
               {/* Quick Calculator Action */}
               <button
+                type="button"
                 onClick={() => setIsCalcOpen(true)}
-                className="p-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-md shadow-3xs transition-all flex items-center justify-center cursor-pointer h-7 w-7"
+                className="p-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-md shadow-3xs transition-all flex items-center justify-center cursor-pointer h-7.5 w-7.5"
                 title={isBangla ? 'ক্যালকুলেটর চালু করুন' : 'Open Calculator'}
                 id="calc-trigger-btn"
               >
@@ -800,8 +845,9 @@ export default function App() {
 
               {/* Google Cloud Sync Controller */}
               <button
+                type="button"
                 onClick={handleToggleSync}
-                className={`px-1.5 py-0.5 rounded-md flex items-center gap-0.5 text-[10px] font-bold border transition-all cursor-pointer h-7 shadow-3xs ${
+                className={`px-2 py-0.5 rounded-md flex items-center gap-1 text-[11px] font-black border transition-all cursor-pointer h-7.5 shadow-3xs ${
                   isSyncActive
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                     : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
@@ -810,24 +856,27 @@ export default function App() {
               >
                 {isSyncActive ? (
                   <>
-                    <Cloud className="h-3 w-3 animate-pulse text-emerald-600" />
-                    <span>{isBangla ? 'সিঙ্ক' : 'Sync'}</span>
+                    <Cloud className="h-3.5 w-3.5 animate-pulse text-emerald-600" />
+                    <span className="hidden sm:inline">{isBangla ? 'সিঙ্ক চালু' : 'Sync On'}</span>
+                    <span className="sm:hidden">{isBangla ? 'সিঙ্ক' : 'Sync'}</span>
                   </>
                 ) : (
                   <>
-                    <CloudOff className="h-3 w-3 text-rose-500" />
-                    <span>{isBangla ? 'সিঙ্ক' : 'Sync'}</span>
+                    <CloudOff className="h-3.5 w-3.5 text-rose-500" />
+                    <span className="hidden sm:inline">{isBangla ? 'সিঙ্ক বন্ধ' : 'Sync Off'}</span>
+                    <span className="sm:hidden">{isBangla ? 'সিঙ্ক' : 'Sync'}</span>
                   </>
                 )}
               </button>
 
               {/* Language Selection Toggle */}
               <button
+                type="button"
                 onClick={toggleLanguage}
-                className="px-1.5 py-0.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-md text-[10px] font-bold text-slate-700 h-7 shadow-3xs transition-all flex items-center gap-0.5 cursor-pointer"
+                className="px-2 py-0.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-md text-[11px] font-black text-slate-700 h-7.5 shadow-3xs transition-all flex items-center gap-1 cursor-pointer"
                 id="lang-toggler"
               >
-                <Globe className="h-3 w-3 text-indigo-500" />
+                <Globe className="h-3.5 w-3.5 text-indigo-500" />
                 <span>{isBangla ? 'EN' : 'বাং'}</span>
               </button>
             </div>
@@ -837,59 +886,7 @@ export default function App() {
       </header>
 
       {/* --- Main Contents Container --- */}
-      <main className="max-w-7xl mx-auto w-full px-4 py-6 flex-1 flex flex-col gap-6">
-        
-        {/* STATS CARDS GRID - CENTERED & COMPACT */}
-        <div className="max-w-4xl mx-auto w-full px-2 sm:px-6">
-          <section className="grid grid-cols-2 sm:grid-cols-4 gap-3" id="stats-dashboard-grid">
-            
-            <StatCard
-              title={isBangla ? 'মোট বিক্রি' : 'Total Sales'}
-              amount={currentNavTab === 'monthly' ? getMonthlyStats().sales : todaySales}
-              icon={TrendingUp}
-              bgColor="bg-emerald-50/30"
-              borderColor="border-emerald-100"
-              textColor="text-emerald-800"
-              iconColor="text-emerald-600"
-              isBangla={isBangla}
-            />
-
-            <StatCard
-              title={isBangla ? 'নগদ জমা' : 'Cash Deposit'}
-              amount={currentNavTab === 'monthly' ? getMonthlyStats().cash : todayCashDeposit}
-              icon={Wallet}
-              bgColor="bg-blue-50/30"
-              borderColor="border-blue-100"
-              textColor="text-blue-800"
-              iconColor="text-blue-600"
-              isBangla={isBangla}
-            />
-
-            <StatCard
-              title={isBangla ? 'বাকি' : 'Due'}
-              amount={currentNavTab === 'monthly' ? getMonthlyStats().due : globalTotalDue}
-              icon={AlertCircle}
-              bgColor="bg-amber-50/30"
-              borderColor="border-amber-100"
-              textColor="text-amber-800"
-              iconColor="text-amber-600"
-              isBangla={isBangla}
-            />
-
-            <StatCard
-              title={isBangla ? 'আজকের খরচ' : 'Today\'s Expense'}
-              amount={currentNavTab === 'monthly' ? getMonthlyStats().expense : todayExpenseTotal}
-              icon={Coins}
-              bgColor="bg-rose-50/30"
-              borderColor="border-rose-100"
-              textColor="text-rose-800"
-              iconColor="text-rose-600"
-              isBangla={isBangla}
-              onClick={() => setIsExpenseModalOpen(true)}
-            />
-
-          </section>
-        </div>
+      <main className="max-w-7xl mx-auto w-full px-4 py-4 flex-1 flex flex-col gap-4">
 
         <AnimatePresence mode="wait">
         {/* --- 1. HOME TAB VIEW --- */}
@@ -900,127 +897,141 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="space-y-6"
+            className="space-y-4"
           >
             
-            {/* Day Navigation & Prominent Right-Aligned Action Button Row */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200/85 shadow-3xs max-w-7xl mx-auto w-full">
-              {/* Day Navigation */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/60 p-1 rounded-xl">
-                <button
-                  onClick={() => navigateDay('prev')}
-                  className="p-1.5 hover:bg-white hover:text-slate-900 text-slate-500 rounded-lg transition-colors cursor-pointer"
-                  title={isBangla ? 'পূর্ববর্তী দিন' : 'Previous Day'}
-                >
-                  <ChevronLeft className="h-4 w-4 stroke-[2.5]" />
-                </button>
-                <div className="flex items-center gap-2 px-3">
-                  <Calendar className="h-4 w-4 text-teal-600" />
-                  <span className="text-xs font-black text-slate-800">
-                    {formatDate(selectedDate, isBangla)}
+            {/* STATS CARDS GRID - INSIDE HOME TAB */}
+            <div className="max-w-xl mx-auto w-full px-1 sm:px-0">
+              <section className="grid grid-cols-2 gap-3" id="stats-dashboard-grid">
+                
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    {isBangla ? 'মোট বিক্রি' : 'Total Sales'}
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-emerald-600 block mt-1">
+                    {formatCurrency(todaySales, isBangla)}
                   </span>
                 </div>
-                <button
-                  onClick={() => navigateDay('next')}
-                  className="p-1.5 hover:bg-white hover:text-slate-900 text-slate-500 rounded-lg transition-colors cursor-pointer"
-                  title={isBangla ? 'পরবর্তী দিন' : 'Next Day'}
+
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    {isBangla ? 'নগদ জমা' : 'Cash Deposit'}
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-blue-600 block mt-1">
+                    {formatCurrency(todayCashDeposit, isBangla)}
+                  </span>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    {isBangla ? 'বাকি' : 'Due'}
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-amber-600 block mt-1">
+                    {formatCurrency(globalTotalDue, isBangla)}
+                  </span>
+                </div>
+
+                <div 
+                  onClick={() => setIsExpenseModalOpen(true)}
+                  className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs cursor-pointer hover:bg-slate-50/50 transition-colors"
                 >
-                  <ChevronRight className="h-4 w-4 stroke-[2.5]" />
-                </button>
-              </div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    {isBangla ? 'আজকের খরচ' : "Today's Expense"}
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-rose-600 block mt-1">
+                    {formatCurrency(todayExpenseTotal, isBangla)}
+                  </span>
+                </div>
 
+              </section>
             </div>
-
+            
             {/* CENTERED & COMPACT SINGLE-COLUMN WORKSPACE */}
-            <div className="max-w-xl mx-auto w-full space-y-6">
+            <div className="max-w-xl mx-auto w-full space-y-4">
               
               {/* 1. Add Transaction Form Card */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 flex items-center justify-center">
-                      <Plus className="h-4 w-4 stroke-[3]" />
-                    </span>
-                    <h3 className="text-sm font-extrabold text-slate-800 tracking-tight">
-                      {isBangla ? 'নতুন বেচাকেনা হিসাব লিখুন' : 'Record New Transaction'}
-                    </h3>
-                  </div>
-                  {/* Small & simple Expense Button inside the box header */}
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-3xs">
+                <div className="flex items-center justify-between mb-3.5 pb-2 border-b border-slate-100">
+                  <span className="text-[11px] font-black uppercase text-slate-400 tracking-wider">
+                    {isBangla ? 'বেচাকেনা খতিয়ান ভুক্তি' : 'Transaction Entry'}
+                  </span>
+                  {/* Small & simple Expense Button */}
                   <button
                     type="button"
                     onClick={() => setIsExpenseModalOpen(true)}
-                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-black rounded-lg border border-rose-200/50 transition-colors flex items-center gap-1 cursor-pointer"
+                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-black rounded-lg border border-rose-200/40 transition-colors flex items-center gap-1 cursor-pointer"
                     id="small-expense-btn"
                   >
-                    <PlusCircle className="h-3.5 w-3.5" />
+                    <PlusCircle className="h-3 w-3" />
                     <span>{isBangla ? 'খরচ যোগ করুন' : 'Add Expense'}</span>
                   </button>
                 </div>
 
-                  <form onSubmit={handleAddTransaction} className="space-y-4">
-                    
-                    {/* Inputs Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {/* Product Name */}
-                      <div className="sm:col-span-1">
-                        <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
-                          <span>🛍️</span>
-                          <span>{isBangla ? 'পণ্যের নাম' : 'Product Name'}</span>
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          placeholder={isBangla ? 'যেমন: চাল, ডাল, সাবান' : 'e.g. Rice, Lentil, Soap'}
-                          value={productName}
-                          onChange={(e) => setProductName(e.target.value)}
-                          className="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-slate-50/30 transition-all font-medium"
-                          id="product-input"
-                        />
-                      </div>
-
-                      {/* Price */}
-                      <div className="sm:col-span-1">
-                        <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <span>৳</span>
-                            <span>{isBangla ? 'দাম (৳)' : 'Price (৳)'}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsCalcOpen(true)}
-                            className="text-[10px] text-teal-600 hover:text-teal-700 font-bold flex items-center gap-1 cursor-pointer"
-                          >
-                            <CalcIcon className="h-3 w-3" />
-                            <span>{isBangla ? 'ক্যালকুলেটর' : 'Calculator'}</span>
-                          </button>
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          placeholder="৳ ০.০০"
-                          value={amount}
-                          onChange={(e) => setAmount(e.target.value)}
-                          className="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-slate-50/30 transition-all font-sans font-semibold"
-                          id="amount-input"
-                        />
-                      </div>
+                <form onSubmit={handleAddTransaction} className="space-y-3">
+                  
+                  {/* Inputs Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Product Name */}
+                    <div className="sm:col-span-1">
+                      <label className="block text-[11px] font-extrabold text-slate-500 mb-1 flex items-center gap-1">
+                        <span>🛍️</span>
+                        <span>{isBangla ? 'পণ্যের নাম' : 'Product Name'}</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder={isBangla ? 'যেমন: চাল, ডাল, সাবান' : 'e.g. Rice, Lentil, Soap'}
+                        value={productName}
+                        onChange={(e) => setProductName(e.target.value)}
+                        className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/20 transition-all font-medium"
+                        id="product-input"
+                      />
                     </div>
 
-                    {/* Payment Type Selection (Capsule toggle) */}
+                    {/* Price */}
+                    <div className="sm:col-span-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-extrabold text-slate-500 flex items-center gap-1">
+                          <span>৳</span>
+                          <span>{isBangla ? 'দাম (৳)' : 'Price (৳)'}</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setIsCalcOpen(true)}
+                          className="text-[10px] text-teal-600 hover:text-teal-700 font-bold flex items-center gap-0.5 cursor-pointer"
+                        >
+                          <CalcIcon className="h-2.5 w-2.5" />
+                          <span>{isBangla ? 'ক্যালকুলেটর' : 'Calculator'}</span>
+                        </button>
+                      </div>
+                      <input
+                        type="number"
+                        required
+                        placeholder="৳ ০.০০"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/20 transition-all font-sans font-bold text-slate-800"
+                        id="amount-input"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Payment Type Selection (Capsule toggle) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1.5">
+                      <label className="block text-[11px] font-extrabold text-slate-500 mb-1">
                         {isBangla ? 'পেমেন্টের ধরন' : 'Payment Type'}
                       </label>
-                      <div className="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/40">
+                      <div className="grid grid-cols-2 gap-0.5 bg-slate-100 p-0.5 rounded-lg border border-slate-200/30">
                         <button
                           type="button"
                           onClick={() => {
                             setIsCashTransaction(true);
                             setCustomerName('');
                           }}
-                          className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                          className={`py-1.5 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
                             isCashTransaction
-                              ? 'bg-emerald-600 text-white shadow-sm'
+                              ? 'bg-emerald-600 text-white shadow-3xs'
                               : 'text-slate-500 hover:text-slate-700'
                           }`}
                           id="type-cash-btn"
@@ -1030,9 +1041,9 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => setIsCashTransaction(false)}
-                          className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                          className={`py-1.5 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
                             !isCashTransaction
-                              ? 'bg-[#E91E63] text-white shadow-sm'
+                              ? 'bg-[#E91E63] text-white shadow-3xs'
                               : 'text-slate-500 hover:text-slate-700'
                           }`}
                           id="type-due-btn"
@@ -1042,20 +1053,19 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Conditional Customer Name Input with motion animation */}
-                    <AnimatePresence>
-                      {!isCashTransaction && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="pt-2">
-                            <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
+                    {/* Conditional Customer Name Input inline when space is narrow */}
+                    <div className="min-h-[44px]">
+                      <AnimatePresence initial={false}>
+                        {!isCashTransaction && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.15 }}
+                          >
+                            <label className="block text-[11px] font-extrabold text-slate-500 mb-1 flex items-center gap-1">
                               <span>👤</span>
-                              <span>{isBangla ? 'কাস্টমারের নাম' : "Customer's Name"}</span>
+                              <span>{isBangla ? 'কাস্টমারের নাম' : "Customer"}</span>
                             </label>
                             <input
                               type="text"
@@ -1063,26 +1073,27 @@ export default function App() {
                               placeholder={isBangla ? 'যেমন: রহিম মিয়া' : 'e.g. Rahim Mia'}
                               value={customerName}
                               onChange={(e) => setCustomerName(e.target.value)}
-                              className="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-slate-50/30 transition-all font-medium"
+                              className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/20 transition-all font-medium"
                               id="customer-input"
                             />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
 
-                    {/* Submit save button */}
-                    <button
-                      type="submit"
-                      className="w-full py-3 bg-[#009688] hover:bg-[#00897B] text-white font-extrabold text-sm rounded-xl shadow-md shadow-teal-700/10 transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer mt-2"
-                      id="submit-transaction-btn"
-                    >
-                      <Check className="h-4.5 w-4.5 stroke-[3]" />
-                      <span>{isBangla ? 'হিসাব সেভ করুন' : 'Save Transaction'}</span>
-                    </button>
+                  {/* Submit save button */}
+                  <button
+                    type="submit"
+                    className="w-full py-2 bg-[#009688] hover:bg-[#00897B] text-white font-black text-xs rounded-lg shadow-sm shadow-teal-700/5 hover:shadow transition-all active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer"
+                    id="submit-transaction-btn"
+                  >
+                    <Check className="h-3.5 w-3.5 stroke-[3.5]" />
+                    <span>{isBangla ? 'হিসাব সেভ করুন' : 'Save Transaction'}</span>
+                  </button>
 
-                  </form>
-                </div>
+                </form>
+              </div>
 
                 {/* 2. Today's Sales List */}
                 <TransactionList
@@ -1120,25 +1131,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Dynamic summary indicator row */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs flex flex-wrap items-center gap-2 justify-center sm:justify-start">
-                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mr-1">
-                  {isBangla ? 'আজকের সারসংক্ষেপ:' : 'Today\'s Summary:'}
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full border border-emerald-100">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  {isBangla ? `আজ: ${formatCurrency(todaySales, true)}` : `Today: ${formatCurrency(todaySales, false)}`}
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded-full border border-blue-100">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                  {isBangla ? `নগদ: ${formatCurrency(todayCashDeposit, true)}` : `Cash: ${formatCurrency(todayCashDeposit, false)}`}
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold bg-rose-50 text-rose-700 px-3 py-1 rounded-full border border-rose-100">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                  {isBangla ? `বাকি: ${formatCurrency(todayDueTaken, true)}` : `Due: ${formatCurrency(todayDueTaken, false)}`}
-                </span>
-              </div>
-
               {/* Active List Panel Content */}
               <div className="relative">
                 {activeTab === 'dues' && (
@@ -1152,46 +1144,13 @@ export default function App() {
                 )}
 
                 {activeTab === 'expenses' && (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
-                      <div>
-                        <h3 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-2">
-                          <span className="text-rose-500">●</span>
-                          {isBangla ? 'আজকের খরচের তালিকা' : 'Today\'s Store Expenses'}
-                        </h3>
-                        <p className="text-xs text-slate-500">
-                          {isBangla 
-                            ? `আজকের মোট খরচ: ${formatCurrency(todayExpenseTotal, true)} (${toBanglaNumber(todayExpenses.length)} টি খতিয়ান)` 
-                            : `Total Expense: ${formatCurrency(todayExpenseTotal, false)} (${todayExpenses.length} entries)`}
-                        </p>
-                      </div>
-                    </div>
-
-                    {todayExpenses.length === 0 ? (
-                      <div className="text-center py-12 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-                        <p className="text-slate-400 text-sm">
-                          {isBangla ? 'আজ কোনো খরচ হিসাবভুক্ত করা হয়নি' : 'No expenses recorded today'}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
-                        {todayExpenses.map((ex) => (
-                          <div key={ex.id} className="flex items-center justify-between p-3.5 rounded-xl bg-amber-50/10 border border-amber-100/30 hover:bg-amber-50/20 transition-all">
-                            <div>
-                              <h4 className="text-xs font-bold text-slate-800">{ex.description}</h4>
-                              <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
-                                <Clock className="h-3 w-3" />
-                                {formatTimeStr(ex.time, isBangla)}
-                              </span>
-                            </div>
-                            <span className="text-xs font-extrabold text-rose-600 font-sans">
-                              {formatCurrency(ex.amount, isBangla)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <ExpenseList
+                    expenses={todayExpenses}
+                    isBangla={isBangla}
+                    onDelete={handleDeleteExpense}
+                    onUpdate={handleUpdateExpense}
+                    todayExpenseTotal={todayExpenseTotal}
+                  />
                 )}
               </div>
           </motion.div>
