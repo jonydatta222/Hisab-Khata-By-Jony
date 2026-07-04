@@ -65,6 +65,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dues' | 'expenses'>('dues');
   const [isCalcOpen, setIsCalcOpen] = useState(false);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+  const [isDueListModalOpen, setIsDueListModalOpen] = useState(false);
+  const [modalSearchQuery, setModalSearchQuery] = useState('');
   const [isSyncActive, setIsSyncActive] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
@@ -92,6 +94,15 @@ export default function App() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [showAuthHelp, setShowAuthHelp] = useState(false);
   const [currentNavTab, setCurrentNavTab] = useState<'home' | 'monthly' | 'history' | 'settings'>('home');
+
+  // Input references for auto-focusing and fluid mobile workflow
+  const productInputRef = useRef<HTMLInputElement>(null);
+  const amountInputRef = useRef<HTMLInputElement>(null);
+  const customerInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCustomerSelect = (cust: string) => {
+    setCustomerName(cust);
+  };
 
   // --- Real-Time Date & Time updates ---
   useEffect(() => {
@@ -516,6 +527,19 @@ export default function App() {
   const customerDues = getCustomerDues();
   const globalTotalDue = customerDues.reduce((sum, cd) => sum + cd.amount, 0);
 
+  const filteredModalDues = customerDues.filter((cd) =>
+    cd.name.toLowerCase().includes(modalSearchQuery.toLowerCase())
+  );
+
+  // Find previous customer names for quick selection
+  const previousCustomers = Array.from(
+    new Set(
+      transactions
+        .map((tx) => tx.customer?.trim())
+        .filter((name): name is string => typeof name === 'string' && name.length > 0)
+    )
+  ).slice(0, 8) as string[];
+
   // Get monthly stats
   const getMonthlyStats = () => {
     const currentMonth = new Date().getMonth();
@@ -922,19 +946,19 @@ export default function App() {
                   </span>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
+                <div 
+                  onClick={() => setIsDueListModalOpen(true)}
+                  className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs cursor-pointer hover:bg-slate-50/50 transition-colors"
+                >
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                    {isBangla ? 'বাকি' : 'Due'}
+                    {isBangla ? 'আজকের বাকি' : "Today's Due"}
                   </span>
                   <span className="text-base sm:text-lg font-black text-amber-600 block mt-1">
-                    {formatCurrency(globalTotalDue, isBangla)}
+                    {formatCurrency(todayDueTaken, isBangla)}
                   </span>
                 </div>
 
-                <div 
-                  onClick={() => setIsExpenseModalOpen(true)}
-                  className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs cursor-pointer hover:bg-slate-50/50 transition-colors"
-                >
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                     {isBangla ? 'আজকের খরচ' : "Today's Expense"}
                   </span>
@@ -950,9 +974,9 @@ export default function App() {
             <div className="max-w-xl mx-auto w-full space-y-4">
               
               {/* 1. Add Transaction Form Card */}
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-3xs">
-                <div className="flex items-center justify-between mb-3.5 pb-2 border-b border-slate-100">
-                  <span className="text-[11px] font-black uppercase text-slate-400 tracking-wider">
+              <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs">
+                <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                  <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">
                     {isBangla ? 'বেচাকেনা খতিয়ান ভুক্তি' : 'Transaction Entry'}
                   </span>
                   {/* Small & simple Expense Button */}
@@ -967,72 +991,67 @@ export default function App() {
                   </button>
                 </div>
 
-                <form onSubmit={handleAddTransaction} className="space-y-3">
+                <form onSubmit={handleAddTransaction} className="space-y-3.5">
                   
                   {/* Inputs Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-12 gap-3">
                     {/* Product Name */}
-                    <div className="sm:col-span-1">
-                      <label className="block text-[11px] font-extrabold text-slate-500 mb-1 flex items-center gap-1">
+                    <div className="col-span-7">
+                      <label className="block text-xs font-black text-slate-600 mb-1 flex items-center gap-1">
                         <span>🛍️</span>
                         <span>{isBangla ? 'পণ্যের নাম' : 'Product Name'}</span>
                       </label>
                       <input
+                        ref={productInputRef}
                         type="text"
                         required
                         placeholder={isBangla ? 'যেমন: চাল, ডাল, সাবান' : 'e.g. Rice, Lentil, Soap'}
                         value={productName}
                         onChange={(e) => setProductName(e.target.value)}
-                        className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/20 transition-all font-medium"
+                        className="w-full text-base px-3 py-2.5 rounded-xl border-2 border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600 bg-teal-50/20 transition-all font-semibold text-slate-900 h-12"
                         id="product-input"
                       />
                     </div>
 
                     {/* Price */}
-                    <div className="sm:col-span-1">
+                    <div className="col-span-5">
                       <div className="flex items-center justify-between mb-1">
-                        <label className="block text-[11px] font-extrabold text-slate-500 flex items-center gap-1">
+                        <label className="block text-xs font-black text-slate-600 flex items-center gap-1">
                           <span>৳</span>
                           <span>{isBangla ? 'দাম (৳)' : 'Price (৳)'}</span>
                         </label>
-                        <button
-                          type="button"
-                          onClick={() => setIsCalcOpen(true)}
-                          className="text-[10px] text-teal-600 hover:text-teal-700 font-bold flex items-center gap-0.5 cursor-pointer"
-                        >
-                          <CalcIcon className="h-2.5 w-2.5" />
-                          <span>{isBangla ? 'ক্যালকুলেটর' : 'Calculator'}</span>
-                        </button>
                       </div>
                       <input
+                        ref={amountInputRef}
                         type="number"
+                        inputMode="decimal"
                         required
                         placeholder="৳ ০.০০"
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
-                        className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/20 transition-all font-sans font-bold text-slate-800"
+                        className="w-full text-base px-3 py-2.5 rounded-xl border-2 border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600 bg-teal-50/20 transition-all font-sans font-black text-slate-900 h-12"
                         id="amount-input"
                       />
                     </div>
                   </div>
 
-                  {/* Payment Type Selection (Capsule toggle) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-                    <div>
-                      <label className="block text-[11px] font-extrabold text-slate-500 mb-1">
-                        {isBangla ? 'পেমেন্টের ধরন' : 'Payment Type'}
-                      </label>
-                      <div className="grid grid-cols-2 gap-0.5 bg-slate-100 p-0.5 rounded-lg border border-slate-200/30">
+                  {/* Payment Type Selection (Mini capsule toggle) */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-t border-slate-50">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-slate-500">
+                        {isBangla ? 'পেমেন্ট ধরন:' : 'Payment:'}
+                      </span>
+                      <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200/50">
                         <button
                           type="button"
                           onClick={() => {
                             setIsCashTransaction(true);
                             setCustomerName('');
                           }}
-                          className={`py-1.5 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                          className={`px-3 py-1 text-[10px] font-black rounded-md transition-all cursor-pointer ${
                             isCashTransaction
                               ? 'bg-emerald-600 text-white shadow-3xs'
-                              : 'text-slate-500 hover:text-slate-700'
+                              : 'text-slate-500 hover:text-slate-600'
                           }`}
                           id="type-cash-btn"
                         >
@@ -1040,11 +1059,17 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setIsCashTransaction(false)}
-                          className={`py-1.5 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                          onClick={() => {
+                            setIsCashTransaction(false);
+                            // Auto focus customer input
+                            setTimeout(() => {
+                              customerInputRef.current?.focus();
+                            }, 100);
+                          }}
+                          className={`px-3 py-1 text-[10px] font-black rounded-md transition-all cursor-pointer ${
                             !isCashTransaction
                               ? 'bg-[#E91E63] text-white shadow-3xs'
-                              : 'text-slate-500 hover:text-slate-700'
+                              : 'text-slate-500 hover:text-slate-600'
                           }`}
                           id="type-due-btn"
                         >
@@ -1054,41 +1079,56 @@ export default function App() {
                     </div>
 
                     {/* Conditional Customer Name Input inline when space is narrow */}
-                    <div className="min-h-[44px]">
-                      <AnimatePresence initial={false}>
-                        {!isCashTransaction && (
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            transition={{ duration: 0.15 }}
-                          >
-                            <label className="block text-[11px] font-extrabold text-slate-500 mb-1 flex items-center gap-1">
-                              <span>👤</span>
-                              <span>{isBangla ? 'কাস্টমারের নাম' : "Customer"}</span>
-                            </label>
-                            <input
-                              type="text"
-                              required={!isCashTransaction}
-                              placeholder={isBangla ? 'যেমন: রহিম মিয়া' : 'e.g. Rahim Mia'}
-                              value={customerName}
-                              onChange={(e) => setCustomerName(e.target.value)}
-                              className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/20 transition-all font-medium"
-                              id="customer-input"
-                            />
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                    {!isCashTransaction && (
+                      <div className="flex-1 flex items-center gap-2">
+                        <label className="shrink-0 text-xs font-black text-slate-600 flex items-center gap-1">
+                          <span>👤</span>
+                          <span>{isBangla ? 'কাস্টমার:' : "Customer:"}</span>
+                        </label>
+                        <input
+                          ref={customerInputRef}
+                          type="text"
+                          required={!isCashTransaction}
+                          placeholder={isBangla ? 'যেমন: রহিম' : 'e.g. Rahim'}
+                          value={customerName}
+                          onChange={(e) => setCustomerName(e.target.value)}
+                          className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/20 transition-all font-semibold h-9"
+                          id="customer-input"
+                        />
+                      </div>
+                    )}
                   </div>
+
+                  {/* Existing Customers Quick-Select Suggestion tags */}
+                  {!isCashTransaction && previousCustomers.length > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] py-0.5 max-w-full">
+                      <span className="shrink-0 text-[8px] font-bold text-slate-400 self-center mr-1">
+                        {isBangla ? 'কাস্টমার চয়ন:' : 'Quick Select:'}
+                      </span>
+                      {previousCustomers.map((cust) => (
+                        <button
+                          key={cust}
+                          type="button"
+                          onClick={() => handleCustomerSelect(cust)}
+                          className={`shrink-0 px-2 py-0.5 text-[9px] font-bold rounded-md border transition-all cursor-pointer active:scale-95 ${
+                            customerName === cust
+                              ? 'bg-amber-600 border-amber-600 text-white'
+                              : 'bg-amber-50 hover:bg-amber-100 border-amber-200/50 text-amber-800'
+                          }`}
+                        >
+                          {cust}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Submit save button */}
                   <button
                     type="submit"
-                    className="w-full py-2 bg-[#009688] hover:bg-[#00897B] text-white font-black text-xs rounded-lg shadow-sm shadow-teal-700/5 hover:shadow transition-all active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-3 bg-[#009688] hover:bg-[#00897B] text-white font-black text-sm rounded-xl shadow-sm shadow-teal-700/5 hover:shadow transition-all active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer h-12"
                     id="submit-transaction-btn"
                   >
-                    <Check className="h-3.5 w-3.5 stroke-[3.5]" />
+                    <Check className="h-4 w-4 stroke-[3.5]" />
                     <span>{isBangla ? 'হিসাব সেভ করুন' : 'Save Transaction'}</span>
                   </button>
 
@@ -1856,6 +1896,134 @@ export default function App() {
                     {isBangla ? 'বন্ধ করুন' : 'Close'}
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- OUTSTANDING DUES MODAL OVERLAY DIALOG --- */}
+      <AnimatePresence>
+        {isDueListModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsDueListModalOpen(false)}
+              className="fixed inset-0 bg-black"
+            />
+
+            {/* Modal Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-slate-100 overflow-hidden flex flex-col max-h-[80vh]"
+              id="dues-modal-box"
+            >
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-150">
+                <h3 className="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
+                  <span className="p-1.5 bg-amber-50 text-amber-600 rounded-lg shrink-0">
+                    <Wallet className="h-4 w-4" />
+                  </span>
+                  <span>{isBangla ? 'বাকি খতিয়ান (কার কাছে কতো বাকি)' : 'Outstanding Dues (Who owes what)'}</span>
+                </h3>
+                <button
+                  onClick={() => setIsDueListModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer text-xs font-bold p-1 hover:bg-slate-100 rounded-full"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Total Summary Row */}
+              <div className="bg-amber-50 border border-amber-200/50 rounded-xl p-3 mb-3.5 flex justify-between items-center text-xs font-black text-amber-900">
+                <span>{isBangla ? 'সর্বমোট বকেয়া পাওনা টাকা:' : 'Total Outstanding Receivable:'}</span>
+                <span className="text-base font-black text-amber-700">{formatCurrency(globalTotalDue, isBangla)}</span>
+              </div>
+
+              {/* Search Box */}
+              <div className="mb-3.5 relative">
+                <input
+                  type="text"
+                  placeholder={isBangla ? 'কাস্টমারের নাম লিখে খুঁজুন...' : 'Search customer...'}
+                  id="modal-due-search"
+                  className="w-full pl-3 pr-3 py-2 text-xs rounded-xl border-2 border-slate-200 focus:outline-none focus:border-amber-500 bg-slate-50/50 transition-all font-semibold"
+                  onChange={(e) => {
+                    const val = e.target.value.toLowerCase();
+                    setModalSearchQuery(val);
+                  }}
+                  value={modalSearchQuery}
+                />
+              </div>
+
+              {/* Scrollable Customer List */}
+              <div className="overflow-y-auto flex-1 pr-1 space-y-2 max-h-[40vh]">
+                {filteredModalDues.length === 0 ? (
+                  <div className="text-center py-8 text-xs text-slate-400 font-bold border border-dashed border-slate-200 rounded-xl">
+                    {isBangla ? 'কোনো বকেয়া হিসাব পাওয়া যায়নি' : 'No matching outstanding dues'}
+                  </div>
+                ) : (
+                  filteredModalDues.map((cd) => (
+                    <div
+                      key={cd.name}
+                      className="p-3 rounded-xl border border-slate-100 bg-rose-50/10 hover:bg-rose-50/20 flex items-center justify-between gap-3 transition-colors"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-rose-500"></span>
+                          <h4 className="text-xs sm:text-sm font-black text-slate-800 truncate">{cd.name}</h4>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-bold mt-1">
+                          {isBangla ? 'সর্বশেষ লেনদেন:' : 'Last active:'} <span className="font-mono">{isBangla ? toBanglaNumber(cd.lastDate) : cd.lastDate}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-right shrink-0">
+                        <span className="text-xs sm:text-sm font-black text-rose-600 block">
+                          {formatCurrency(cd.amount, isBangla)}
+                        </span>
+                        
+                        {/* Inline deposit button */}
+                        <button
+                          onClick={() => {
+                            const amtStr = window.prompt(
+                              isBangla 
+                                ? `${cd.name}-এর কাছ থেকে কত টাকা জমা নিতে চান? (সর্বোচ্চ ${formatCurrency(cd.amount, true)})`
+                                : `Enter deposit amount from ${cd.name} (Max ${formatCurrency(cd.amount, false)}):`
+                            );
+                            if (amtStr === null) return;
+                            const amt = parseFloat(amtStr);
+                            if (isNaN(amt) || amt <= 0) {
+                              alert(isBangla ? 'সঠিক টাকার পরিমাণ লিখুন' : 'Please enter a valid amount');
+                              return;
+                            }
+                            if (amt > cd.amount) {
+                              alert(isBangla ? 'বকেয়া পরিমাণের চেয়ে বেশি জমা করা যাবে না' : 'Deposit cannot exceed outstanding due');
+                              return;
+                            }
+                            handleDueDeposit(cd.name, amt);
+                          }}
+                          className="text-[9px] font-black text-teal-700 bg-teal-50 border border-teal-200/50 hover:bg-teal-100 px-2 py-0.5 rounded-lg mt-1 transition-all cursor-pointer shadow-3xs"
+                        >
+                          {isBangla ? 'জমা নিন' : 'Deposit'}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex items-center justify-end pt-3 mt-3.5 border-t border-slate-150">
+                <button
+                  type="button"
+                  onClick={() => setIsDueListModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-xs text-slate-600 rounded-xl cursor-pointer font-black transition-colors"
+                >
+                  {isBangla ? 'বন্ধ করুন' : 'Close'}
+                </button>
               </div>
             </motion.div>
           </div>
