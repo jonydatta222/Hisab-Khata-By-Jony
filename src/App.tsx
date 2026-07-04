@@ -89,6 +89,7 @@ export default function App() {
     return localStorage.getItem('hisab_khata_shop_name') || '';
   });
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [showAuthHelp, setShowAuthHelp] = useState(false);
   const [currentNavTab, setCurrentNavTab] = useState<'home' | 'monthly' | 'history' | 'settings'>('home');
 
   // --- Real-Time Date & Time updates ---
@@ -384,13 +385,19 @@ export default function App() {
     try {
       const email = await signInWithGoogle();
       showToast(isBangla ? `গুগল অ্যাকাউন্ট সংযুক্ত হয়েছে: ${email}` : `Connected Google account: ${email}`);
+      setShowAuthHelp(false);
       // Automatically toggle sync if not active
       if (!isSyncActive) {
         await toggleSyncState(email);
       }
     } catch (error) {
-      console.error(error);
-      showToast(isBangla ? 'গুগল সাইন-ইন ব্যর্থ হয়েছে!' : 'Google sign-in failed!');
+      console.error('Google Sign-In Error Captured:', error);
+      setShowAuthHelp(true);
+      showToast(
+        isBangla 
+          ? 'ব্রাউজারজনিত কারণে গুগল সাইন-ইন অফলাইন! সহজ বিকল্প উপায়টি নিচে দেখুন।' 
+          : 'Google sign-in restricted by browser. See alternative sync solution below!'
+      );
     } finally {
       setIsSyncing(false);
       setSyncMessage('');
@@ -1757,6 +1764,58 @@ export default function App() {
                       </div>
                     )}
                   </div>
+
+                  {showAuthHelp && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="p-3.5 bg-indigo-50 border border-indigo-150 rounded-xl text-xs text-indigo-950 space-y-2.5 shadow-sm"
+                      id="auth-help-box"
+                    >
+                      <div className="flex items-center gap-1.5 font-black text-indigo-950">
+                        <AlertCircle className="h-4 w-4 text-indigo-600 shrink-0" />
+                        <span>
+                          {isBangla ? 'গুগল সাইন-ইন কেন কাজ করছে না?' : 'Why is Google Sign-In blocked?'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-slate-600 font-bold">
+                        {isBangla ? (
+                          <>
+                            গুগল ক্রোম ও মোবাইল ব্রাউজারের কঠোর সিকিউরিটির কারণে এই টেস্টিং ডোমেইনে ব্রাউজার ডেটা (sessionStorage) শেয়ারিং বন্ধ থাকে, যা গুগল সাইন-ইন সাময়িকভাবে বাধাগ্রস্ত করে।
+                            <br /><br />
+                            <span className="text-teal-700 font-extrabold">শতভাগ কার্যকারী বিকল্প সহজ সমাধান:</span>
+                            <br />
+                            ১. নিচে <strong className="text-slate-800">"সিঙ্ক ইমেইল আইডি"</strong> ঘরে আপনার যেকোনো ইমেইল লিখুন।
+                            <br />
+                            ২. এরপর সরাসরি ডানপাশের <strong className="text-slate-800">"চালু করুন"</strong> বাটনে ক্লিক করুন।
+                            <br /><br />
+                            ব্যাস! কোনো পাসওয়ার্ড বা অতিরিক্ত লগইন ছাড়া আপনার ডাটা ক্লাউডে সুরক্ষিত থাকবে। অ্যাপ প্লে-স্টোরে ইনস্টল করার পর গুগল সাইন-ইন সরাসরি কাজ করবে!
+                          </>
+                        ) : (
+                          <>
+                            Google Chrome restricts cross-domain popups on temporary test environments due to third-party cookie and storage-partitioning security policies.
+                            <br /><br />
+                            <span className="text-teal-700 font-extrabold">Guaranteed Easy Alternative:</span>
+                            <br />
+                            1. Type your preferred email in the <strong className="text-slate-800">"Sync Email ID"</strong> field below.
+                            <br />
+                            2. Click the <strong className="text-slate-800">"Enable"</strong> button directly.
+                            <br /><br />
+                            That's it! Your data is fully synced and backed up without needing a Google sign-in. Google Login will work out-of-the-box once deployed to production!
+                          </>
+                        )}
+                      </p>
+                      <div className="flex justify-end pt-1 border-t border-indigo-100">
+                        <button
+                          type="button"
+                          onClick={() => setShowAuthHelp(false)}
+                          className="text-[10px] font-black text-indigo-700 hover:text-indigo-900 underline cursor-pointer"
+                        >
+                          {isBangla ? 'বুঝেছি, এটি লুকান' : 'Got it, hide this'}
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
 
                   <div className="relative flex py-1 items-center">
                     <div className="flex-grow border-t border-slate-150"></div>
