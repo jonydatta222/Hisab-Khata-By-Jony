@@ -135,7 +135,32 @@ export default function App() {
   const [driveEmail, setDriveEmail] = useState<string>(() => {
     return localStorage.getItem('hisab_khata_drive_email') || '';
   });
-  const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
+  const [driveAccessToken, setDriveAccessToken] = useState<string | null>(() => {
+    const token = localStorage.getItem('hisab_khata_drive_token');
+    const tokenTimeStr = localStorage.getItem('hisab_khata_drive_token_time');
+    if (token && tokenTimeStr) {
+      const tokenTime = parseInt(tokenTimeStr, 10);
+      // Valid for 1 hour. We use 55 minutes to be safe.
+      if (Date.now() - tokenTime < 55 * 60 * 1000) {
+        return token;
+      }
+    }
+    localStorage.removeItem('hisab_khata_drive_token');
+    localStorage.removeItem('hisab_khata_drive_token_time');
+    return null;
+  });
+
+  const updateDriveAccessToken = (token: string | null) => {
+    setDriveAccessToken(token);
+    if (token) {
+      localStorage.setItem('hisab_khata_drive_token', token);
+      localStorage.setItem('hisab_khata_drive_token_time', String(Date.now()));
+    } else {
+      localStorage.removeItem('hisab_khata_drive_token');
+      localStorage.removeItem('hisab_khata_drive_token_time');
+    }
+  };
+
   const [isDriveAutoBackupActive, setIsDriveAutoBackupActive] = useState<boolean>(() => {
     return localStorage.getItem('hisab_khata_drive_auto_backup') === 'true';
   });
@@ -620,7 +645,7 @@ export default function App() {
     } catch (error: any) {
       console.error('Google Drive backup failed:', error);
       if (error.message === 'UNAUTHORIZED') {
-        setDriveAccessToken(null);
+        updateDriveAccessToken(null);
         showToast(isBangla ? 'গুগল ড্রাইভ সেশন শেষ হয়েছে, দয়া করে পুনরায় কানেক্ট করুন।' : 'Google Drive session expired, please reconnect.');
       } else {
         if (!silent) {
@@ -681,7 +706,7 @@ export default function App() {
     } catch (error: any) {
       console.error('Google Drive restore failed:', error);
       if (error.message === 'UNAUTHORIZED') {
-        setDriveAccessToken(null);
+        updateDriveAccessToken(null);
         showToast(isBangla ? 'গুগল ড্রাইভ সেশন শেষ হয়েছে, দয়া করে পুনরায় কানেক্ট করুন।' : 'Google Drive session expired, please reconnect.');
       } else {
         showToast(isBangla ? 'রিস্টোর করতে সমস্যা হয়েছে!' : 'Failed to restore from Google Drive!');
@@ -698,7 +723,7 @@ export default function App() {
     try {
       const result = await signInWithGoogleForDrive();
       setDriveEmail(result.email);
-      setDriveAccessToken(result.accessToken);
+      updateDriveAccessToken(result.accessToken);
       localStorage.setItem('hisab_khata_drive_email', result.email);
       showToast(isBangla ? `গুগল ড্রাইভ সংযুক্ত হয়েছে: ${result.email}` : `Connected Google Drive: ${result.email}`);
     } catch (error) {
@@ -712,7 +737,7 @@ export default function App() {
 
   const handleDriveDisconnect = async () => {
     setDriveEmail('');
-    setDriveAccessToken(null);
+    updateDriveAccessToken(null);
     localStorage.removeItem('hisab_khata_drive_email');
     setIsDriveAutoBackupActive(false);
     localStorage.setItem('hisab_khata_drive_auto_backup', 'false');
