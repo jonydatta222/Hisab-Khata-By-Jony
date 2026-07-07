@@ -7,7 +7,18 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Helper to validate document ID / email format
+    // Helper to check if user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper to check if the user is access-authorized for a given email document
+    function isOwner(email) {
+      return isSignedIn() 
+          && request.auth.token.email.lower() == email.lower();
+    }
+
+    // Helper to validate email formatting
     function isValidEmail(email) {
       return email is string 
           && email.size() > 3 
@@ -17,17 +28,20 @@ service cloud.firestore {
     // Helper to validate UserLedgerData schema
     function isValidUserLedgerData(data) {
       return data.keys().hasAll(['transactions', 'expenses', 'shopName', 'updatedAt'])
-          && data.keys().size() == 4
+          && data.keys().hasOnly(['transactions', 'expenses', 'shopName', 'updatedAt', 'outOfStockItems', 'productRates'])
           && data.transactions is list
           && data.expenses is list
           && data.shopName is string
           && data.shopName.size() <= 150
-          && data.updatedAt is int;
+          && data.updatedAt is int
+          && (!('outOfStockItems' in data) || data.outOfStockItems is list)
+          && (!('productRates' in data) || data.productRates is list);
     }
 
     match /users/{email} {
-      allow get: if isValidEmail(email);
-      allow create, update: if isValidEmail(email) 
+      allow get: if isOwner(email) && isValidEmail(email);
+      allow create, update: if isOwner(email) 
+                             && isValidEmail(email) 
                              && isValidUserLedgerData(request.resource.data);
       allow delete: if false;
     }

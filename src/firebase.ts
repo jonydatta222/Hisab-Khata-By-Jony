@@ -20,6 +20,7 @@ const db = initializeFirestore(app, {
     tabManager: persistentMultipleTabManager(),
   }),
   experimentalForceLongPolling: true,
+  ignoreUndefinedProperties: true,
 }, (firebaseConfig as any).firestoreDatabaseId || '(default)');
 const auth = getAuth(app);
 

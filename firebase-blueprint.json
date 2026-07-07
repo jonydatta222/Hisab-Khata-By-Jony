@@ -28,15 +28,40 @@
       },
       "required": ["id", "date", "time", "description", "amount"]
     },
+    "OutOfStockItem": {
+      "title": "Out Of Stock Item",
+      "description": "Represents an item that is out of stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "dateAdded": { "type": "string" }
+      },
+      "required": ["id", "name", "dateAdded"]
+    },
+    "ProductRateItem": {
+      "title": "Product Rate Item",
+      "description": "Represents the buying price of an item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "buyingPrice": { "type": "number" },
+        "dateAdded": { "type": "string" }
+      },
+      "required": ["id", "name", "buyingPrice", "dateAdded"]
+    },
     "UserLedgerData": {
       "title": "User Ledger Data",
-      "description": "Ledger data containing all transactions and expenses synced for a specific email",
+      "description": "Ledger data containing all transactions, expenses, out of stock items, and product rates synced for a specific email",
       "type": "object",
       "properties": {
         "transactions": { "type": "array" },
         "expenses": { "type": "array" },
         "shopName": { "type": "string" },
-        "updatedAt": { "type": "number" }
+        "updatedAt": { "type": "number" },
+        "outOfStockItems": { "type": "array" },
+        "productRates": { "type": "array" }
       },
       "required": ["transactions", "expenses", "shopName", "updatedAt"]
     }
