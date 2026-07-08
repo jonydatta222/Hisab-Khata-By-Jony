@@ -46,28 +46,16 @@ import {
   uploadLedgerToCloud, 
   downloadLedgerFromCloud, 
   auth, 
-  signInWithGoogle, 
-  signInWithGoogleForDrive,
-  logOutFromGoogle,
+  logOutFromFirebase,
   loginWithEmailAndPassword,
   registerWithEmailAndPassword,
-  ensureAuthForEmail
+  ensureAuthForEmail,
+  loginWithGoogle
 } from './firebase';
-
-import { 
-  findBackupFile, 
-  createBackupFile, 
-  updateBackupFile, 
-  downloadBackupFile, 
-  deleteBackupFile,
-  DriveBackupData 
-} from './utils/driveBackup';
 
 // Native Capacitor Chrome Custom Tabs & Deep Linking callback imports
 import { Browser } from '@capacitor/browser';
 import { App as CapApp } from '@capacitor/app';
-import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { GoogleAuthProvider, signInWithCredential, signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 
 import logoImg from './assets/logo.png';
 
@@ -91,11 +79,6 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState('');
   const [currentDateFormatted, setCurrentDateFormatted] = useState('');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  
-  // --- Native & Hosted Chrome Custom Tab Web Authentication States ---
-  const [appAuthMode, setAppAuthMode] = useState<'none' | 'auth' | 'drive'>('none');
-  const [appAuthStatus, setAppAuthStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [appAuthError, setAppAuthError] = useState('');
   
   // Database state
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -192,41 +175,6 @@ export default function App() {
     return localStorage.getItem('hisab_khata_shop_name') || '';
   });
 
-  // Google Drive Backup States
-  const [driveEmail, setDriveEmail] = useState<string>(() => {
-    return localStorage.getItem('hisab_khata_drive_email') || '';
-  });
-  const [driveAccessToken, setDriveAccessToken] = useState<string | null>(() => {
-    const token = localStorage.getItem('hisab_khata_drive_token');
-    const tokenTimeStr = localStorage.getItem('hisab_khata_drive_token_time');
-    if (token && tokenTimeStr) {
-      const tokenTime = parseInt(tokenTimeStr, 10);
-      // Valid for 1 hour. We use 55 minutes to be safe.
-      if (Date.now() - tokenTime < 55 * 60 * 1000) {
-        return token;
-      }
-    }
-    localStorage.removeItem('hisab_khata_drive_token');
-    localStorage.removeItem('hisab_khata_drive_token_time');
-    return null;
-  });
-
-  const updateDriveAccessToken = (token: string | null) => {
-    setDriveAccessToken(token);
-    if (token) {
-      localStorage.setItem('hisab_khata_drive_token', token);
-      localStorage.setItem('hisab_khata_drive_token_time', String(Date.now()));
-    } else {
-      localStorage.removeItem('hisab_khata_drive_token');
-      localStorage.removeItem('hisab_khata_drive_token_time');
-    }
-  };
-
-  const [isDriveAutoBackupActive, setIsDriveAutoBackupActive] = useState<boolean>(() => {
-    return localStorage.getItem('hisab_khata_drive_auto_backup') === 'true';
-  });
-  const [isDriveSyncing, setIsDriveSyncing] = useState(false);
-  const [driveSyncMessage, setDriveSyncMessage] = useState('');
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [showAuthHelp, setShowAuthHelp] = useState(false);
   const [currentNavTab, setCurrentNavTab] = useState<'home' | 'info' | 'monthly' | 'history' | 'settings'>('home');
@@ -239,7 +187,7 @@ export default function App() {
     return (localStorage.getItem('hisab_khata_auth_server_type') as 'dev' | 'pre') || 'dev';
   });
 
-  const getAuthRedirectUrl = (mode: 'app-auth' | 'app-drive') => {
+  const getAuthRedirectUrl = (mode: 'app-auth') => {
     const baseUrl = authServerType === 'dev'
       ? 'https://ais-dev-ubhqkvzgdwmiuzrvrwvhgc-273317504244.asia-southeast1.run.app'
       : 'https://ais-pre-ubhqkvzgdwmiuzrvrwvhgc-273317504244.asia-southeast1.run.app';
@@ -397,175 +345,7 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState<any>(null);
 
-  // --- Capacitor App Deep Link Listener ---
-  useEffect(() => {
-    if (isCapacitor) {
-      const handleAppUrlOpen = async (event: { url: string }) => {
-        console.log('App opened with URL:', event.url);
-        
-        try {
-          const urlObj = new URL(event.url);
-          if (urlObj.protocol === 'hisabkhata:') {
-            try {
-              await Browser.close();
-            } catch (closeErr) {
-              console.warn('Browser.close failed (already closed or web environment):', closeErr);
-            }
-            
-            if (urlObj.host === 'auth-callback') {
-              const params = new URLSearchParams(urlObj.search);
-              const idToken = params.get('idToken');
-              const accessToken = params.get('accessToken');
-              const email = params.get('email');
-              
-              if (idToken) {
-                setIsSyncing(true);
-                setSyncMessage(isBangla ? 'গুগল দিয়ে লগইন করা হচ্ছে...' : 'Logging in with Google...');
-                
-                const credential = GoogleAuthProvider.credential(idToken, accessToken || undefined);
-                const userCredential = await signInWithCredential(auth, credential);
-                const loggedInEmail = userCredential.user.email;
-                
-                if (loggedInEmail) {
-                  setUserEmail(loggedInEmail);
-                  localStorage.setItem('hisab_khata_sync_email', loggedInEmail);
-                  showToast(isBangla ? `লগইন সফল হয়েছে: ${loggedInEmail}` : `Login successful: ${loggedInEmail}`);
-                  
-                  // Automatically toggle sync if not active
-                  if (!isSyncActive) {
-                    await toggleSyncState(loggedInEmail);
-                  }
-                }
-              }
-            } else if (urlObj.host === 'drive-callback') {
-              const params = new URLSearchParams(urlObj.search);
-              const accessToken = params.get('accessToken');
-              const email = params.get('email');
-              
-              if (accessToken && email) {
-                setDriveEmail(email);
-                updateDriveAccessToken(accessToken);
-                localStorage.setItem('hisab_khata_drive_email', email);
-                showToast(isBangla ? `গুগল ড্রাইভ সংযুক্ত হয়েছে: ${email}` : `Connected Google Drive: ${email}`);
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Error handling deep link URL:', e);
-        } finally {
-          setIsSyncing(false);
-          setSyncMessage('');
-        }
-      };
 
-      const listenerPromise = CapApp.addListener('appUrlOpen', handleAppUrlOpen);
-      
-      return () => {
-        listenerPromise.then(l => l.remove());
-      };
-    }
-  }, [isCapacitor, isSyncActive, isBangla]);
-
-  // --- Hosted Web Auth Mode detection and execution ---
-  useEffect(() => {
-    // 1. Check URL search/query params
-    const params = new URLSearchParams(window.location.search);
-    let mode = params.get('mode');
-
-    // 2. Fallback to check hash parameters (extremely reliable for static hosting)
-    if (!mode && window.location.hash) {
-      const hashStr = window.location.hash.replace(/^#\/?/, '');
-      if (hashStr.includes('=')) {
-        const hashParams = new URLSearchParams(hashStr);
-        mode = hashParams.get('mode');
-      } else if (hashStr.includes('mode')) {
-        const match = hashStr.match(/mode=([^&]+)/);
-        if (match) mode = match[1];
-      } else {
-        mode = hashStr;
-      }
-    }
-
-    if (mode === 'app-auth' || mode === 'auth') {
-      setAppAuthMode('auth');
-    } else if (mode === 'app-drive' || mode === 'drive') {
-      setAppAuthMode('drive');
-    }
-  }, []);
-
-  const triggerAuthFlow = async () => {
-    const provider = new GoogleAuthProvider();
-    if (appAuthMode === 'drive') {
-      provider.addScope('https://www.googleapis.com/auth/drive.file');
-    }
-    
-    try {
-      const popResult = await signInWithPopup(auth, provider);
-      await handleWebAuthResult(popResult);
-    } catch (popupError: any) {
-      console.log('Popup failed or blocked, trying redirect...', popupError);
-      await signInWithRedirect(auth, provider);
-    }
-  };
-
-  const handleStartWebAuth = async () => {
-    setAppAuthStatus('loading');
-    setAppAuthError('');
-    await triggerAuthFlow();
-  };
-
-  const handleWebAuthResult = async (result: any) => {
-    try {
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const idToken = credential?.idToken;
-      const accessToken = credential?.accessToken;
-      const email = result.user?.email;
-
-      if (!email) {
-        throw new Error('No email found in Google account.');
-      }
-
-      setAppAuthStatus('success');
-
-      if (appAuthMode === 'drive') {
-        if (!accessToken) {
-          throw new Error('Failed to obtain Google Drive Access Token.');
-        }
-        window.location.href = `hisabkhata://drive-callback?accessToken=${encodeURIComponent(accessToken)}&email=${encodeURIComponent(email)}`;
-      } else {
-        if (!idToken) {
-          throw new Error('Failed to obtain Google ID Token.');
-        }
-        window.location.href = `hisabkhata://auth-callback?idToken=${encodeURIComponent(idToken)}&accessToken=${encodeURIComponent(accessToken || '')}&email=${encodeURIComponent(email)}`;
-      }
-    } catch (e: any) {
-      console.error('Error in handling web auth result:', e);
-      setAppAuthStatus('error');
-      setAppAuthError(e?.message || String(e));
-    }
-  };
-
-  useEffect(() => {
-    if (appAuthMode !== 'none') {
-      const checkRedirect = async () => {
-        setAppAuthStatus('loading');
-        try {
-          const redirectResult = await getRedirectResult(auth);
-          if (redirectResult) {
-            await handleWebAuthResult(redirectResult);
-          } else {
-            await triggerAuthFlow();
-          }
-        } catch (err: any) {
-          console.error('Redirect check error:', err);
-          setAppAuthStatus('error');
-          setAppAuthError(err?.message || String(err));
-        }
-      };
-      
-      checkRedirect();
-    }
-  }, [appAuthMode]);
 
   // --- Listen for Firebase Auth changes ---
   useEffect(() => {
@@ -650,9 +430,6 @@ export default function App() {
     if (isSyncActive) {
       triggerCloudSync(txList, expenses, shopName, userEmail, outOfStockItems, productRates);
     }
-    if (isDriveAutoBackupActive && driveAccessToken) {
-      triggerDriveBackup(txList, expenses, shopName, true);
-    }
   };
 
   const saveExpensesToStorage = (expList: Expense[]) => {
@@ -662,9 +439,6 @@ export default function App() {
     localStorage.setItem('hisab_khata_last_updated', String(now));
     if (isSyncActive) {
       triggerCloudSync(transactions, expList, shopName, userEmail, outOfStockItems, productRates);
-    }
-    if (isDriveAutoBackupActive && driveAccessToken) {
-      triggerDriveBackup(transactions, expList, shopName, true);
     }
   };
 
@@ -793,6 +567,15 @@ export default function App() {
         try {
           await ensureAuthForEmail(emailToUse);
         } catch (authErr: any) {
+          if (authErr.message === 'SECURE_AUTH_REQUIRED') {
+            showToast(
+              isBangla 
+                ? 'অনুগ্রহ করে প্রথমে গুগল লগইন বা পাসওয়ার্ড দিয়ে লগইন সম্পন্ন করুন।' 
+                : 'Please complete secure Google login or password sign-in first.'
+            );
+            setIsSyncModalOpen(true);
+            return;
+          }
           if (authErr.message === 'CUSTOM_PASSWORD_REQUIRED') {
             showToast(
               isBangla 
@@ -880,66 +663,43 @@ export default function App() {
   };
 
   const handleGoogleLogin = async () => {
-    if (isCapacitor) {
-      setIsSyncing(true);
-      setSyncMessage(isBangla ? 'গুগল সাইন-ইন করা হচ্ছে...' : 'Signing in with Google...');
-      try {
-        // Try Native Google Sign-In SDK first
-        const result = await FirebaseAuthentication.signInWithGoogle();
-        const idToken = result.credential?.idToken;
-        if (idToken) {
-          const credential = GoogleAuthProvider.credential(idToken, result.credential?.accessToken || undefined);
-          const userCredential = await signInWithCredential(auth, credential);
-          const loggedInEmail = userCredential.user.email;
-          if (loggedInEmail) {
-            setUserEmail(loggedInEmail);
-            localStorage.setItem('hisab_khata_sync_email', loggedInEmail);
-            showToast(isBangla ? `লগইন সফল হয়েছে: ${loggedInEmail}` : `Login successful: ${loggedInEmail}`);
-            if (!isSyncActive) {
-              await toggleSyncState(loggedInEmail);
-            }
-          }
-          setIsSyncing(false);
-          setSyncMessage('');
-          return;
-        } else {
-          throw new Error('No ID Token received from Native SDK');
-        }
-      } catch (nativeErr: any) {
-        console.warn('Native Sign-In failed or not configured (missing google-services.json/SHA-1), falling back to Chrome Custom Tabs:', nativeErr);
-        // Fallback automatically to Chrome Custom Tabs (very reliable)
-        setSyncMessage(isBangla ? 'গুগল ব্রাউজার ওপেন করা হচ্ছে...' : 'Opening Google browser...');
-        try {
-          const url = getAuthRedirectUrl('app-auth');
-          await Browser.open({ url });
-        } catch (e: any) {
-          console.error('Error launching Custom Tab:', e);
-          showToast(isBangla ? 'গুগল কানেক্ট ওপেন করতে ব্যর্থ হয়েছে!' : 'Failed to launch Google Connect!');
-        } finally {
-          setIsSyncing(false);
-          setSyncMessage('');
-        }
-      }
-      return;
-    }
     setIsSyncing(true);
-    setSyncMessage(isBangla ? 'গুগল অ্যাকাউন্ট কানেক্ট করা হচ্ছে...' : 'Connecting Google Account...');
+    setSyncMessage(isBangla ? 'গুগল লগইন করা হচ্ছে...' : 'Logging in with Google...');
     try {
-      const email = await signInWithGoogle();
-      showToast(isBangla ? `গুগল অ্যাকাউন্ট সংযুক্ত হয়েছে: ${email}` : `Connected Google account: ${email}`);
-      setShowAuthHelp(false);
+      const email = await loginWithGoogle();
+      showToast(isBangla ? `গুগল লগইন সফল হয়েছে: ${email}` : `Google login successful: ${email}`);
       // Automatically toggle sync if not active
       if (!isSyncActive) {
         await toggleSyncState(email);
       }
+    } catch (error: any) {
+      console.error('Google Login Error:', error);
+      let errorMsg = isBangla ? 'গুগল লগইন ব্যর্থ হয়েছে!' : 'Google Login failed!';
+      if (error?.message) {
+        errorMsg += ` (${error.message})`;
+      }
+      showToast(errorMsg);
+    } finally {
+      setIsSyncing(false);
+      setSyncMessage('');
+    }
+  };
+
+  const handleLogout = async () => {
+    setIsSyncing(true);
+    setSyncMessage(isBangla ? 'লগআউট করা হচ্ছে...' : 'Signing out...');
+    try {
+      await logOutFromFirebase();
+      setUserEmail('');
+      localStorage.removeItem('hisab_khata_sync_email');
+      if (isSyncActive) {
+        setIsSyncActive(false);
+        localStorage.setItem('hisab_khata_sync', 'false');
+      }
+      showToast(isBangla ? 'সফলভাবে লগআউট করা হয়েছে' : 'Successfully signed out');
     } catch (error) {
-      console.error('Google Sign-In Error Captured:', error);
-      setShowAuthHelp(true);
-      showToast(
-        isBangla 
-          ? 'ব্রাউজারজনিত কারণে গুগল সাইন-ইন অফলাইন! সহজ বিকল্প উপায়টি নিচে দেখুন।' 
-          : 'Google sign-in restricted by browser. See alternative sync solution below!'
-      );
+      console.error(error);
+      showToast(isBangla ? 'লগআউট ব্যর্থ হয়েছে!' : 'Sign-out failed!');
     } finally {
       setIsSyncing(false);
       setSyncMessage('');
@@ -1023,258 +783,7 @@ export default function App() {
     }
   };
 
-  const handleGoogleLogout = async () => {
-    setIsSyncing(true);
-    setSyncMessage(isBangla ? 'লগআউট করা হচ্ছে...' : 'Signing out...');
-    try {
-      await logOutFromGoogle();
-      setUserEmail('');
-      localStorage.removeItem('hisab_khata_sync_email');
-      if (isSyncActive) {
-        setIsSyncActive(false);
-        localStorage.setItem('hisab_khata_sync', 'false');
-      }
-      showToast(isBangla ? 'সফলভাবে লগআউট করা হয়েছে' : 'Successfully signed out');
-    } catch (error) {
-      console.error(error);
-      showToast(isBangla ? 'লগআউট ব্যর্থ হয়েছে!' : 'Sign-out failed!');
-    } finally {
-      setIsSyncing(false);
-      setSyncMessage('');
-    }
-  };
 
-  // --- Google Drive Backup Actions ---
-  const triggerDriveBackup = async (
-    currentTxs: Transaction[] = transactions,
-    currentExs: Expense[] = expenses,
-    currentShopName: string = shopName,
-    silent: boolean = false
-  ) => {
-    if (!driveAccessToken) {
-      if (!silent) {
-        showToast(isBangla ? 'গুগল ড্রাইভ সংযুক্ত নয়! দয়া করে ড্রাইভ কানেক্ট করুন।' : 'Google Drive not connected! Please connect Drive.');
-      }
-      return;
-    }
-
-    setIsDriveSyncing(true);
-    setDriveSyncMessage(isBangla ? 'গুগল ড্রাইভে ব্যাকআপ নেওয়া হচ্ছে...' : 'Backing up to Google Drive...');
-
-    try {
-      const backupData: DriveBackupData = {
-        transactions: currentTxs,
-        expenses: currentExs,
-        shopName: currentShopName,
-        updatedAt: Date.now(),
-        exportDate: new Date().toISOString(),
-        creator: driveEmail,
-      };
-
-      const existingFileId = await findBackupFile(driveAccessToken);
-
-      if (existingFileId) {
-        await updateBackupFile(driveAccessToken, existingFileId, backupData);
-      } else {
-        await createBackupFile(driveAccessToken, backupData);
-      }
-
-      if (!silent) {
-        showToast(isBangla ? 'গুগল ড্রাইভে ব্যাকআপ সফলভাবে সংরক্ষিত হয়েছে!' : 'Backup successfully saved to Google Drive!');
-      }
-    } catch (error: any) {
-      console.error('Google Drive backup failed:', error);
-      if (error.message === 'UNAUTHORIZED') {
-        updateDriveAccessToken(null);
-        showToast(isBangla ? 'গুগল ড্রাইভ সেশন শেষ হয়েছে, দয়া করে পুনরায় কানেক্ট করুন।' : 'Google Drive session expired, please reconnect.');
-      } else {
-        if (!silent) {
-          showToast(isBangla ? 'গুগল ড্রাইভে ব্যাকআপ রাখতে ব্যর্থ হয়েছে!' : 'Failed to backup to Google Drive!');
-        }
-      }
-    } finally {
-      setIsDriveSyncing(false);
-      setDriveSyncMessage('');
-    }
-  };
-
-  const triggerDriveRestore = async () => {
-    if (!driveAccessToken) {
-      showToast(isBangla ? 'গুগল ড্রাইভ সংযুক্ত নয়! দয়া করে ড্রাইভ কানেক্ট করুন।' : 'Google Drive not connected! Please connect Drive.');
-      return;
-    }
-
-    const doubleCheck = window.confirm(
-      isBangla 
-        ? '⚠️ আপনি কি ড্রাইভ থেকে ব্যাকআপ রিস্টোর করতে চান? এটি আপনার বর্তমান ডিভাইসের সকল তথ্য মুছে ড্রাইভের ব্যাকআপ দিয়ে পরিবর্তন করবে।'
-        : '⚠️ Are you sure you want to restore from Google Drive? This will overwrite all your current device data with the backup.'
-    );
-    if (!doubleCheck) return;
-
-    setIsDriveSyncing(true);
-    setDriveSyncMessage(isBangla ? 'গুগল ড্রাইভ থেকে ব্যাকআপ খোঁজা হচ্ছে...' : 'Searching for backup in Google Drive...');
-
-    try {
-      const fileId = await findBackupFile(driveAccessToken);
-      if (!fileId) {
-        showToast(isBangla ? 'ড্রাইভে কোনো ব্যাকআপ ফাইল পাওয়া যায়নি!' : 'No backup file found in your Google Drive!');
-        return;
-      }
-
-      setDriveSyncMessage(isBangla ? 'ব্যাকআপ ডাউনলোড ও রিস্টোর করা হচ্ছে...' : 'Downloading and restoring backup...');
-      const backupData = await downloadBackupFile(driveAccessToken, fileId);
-
-      if (Array.isArray(backupData.transactions) && Array.isArray(backupData.expenses)) {
-        setTransactions(backupData.transactions);
-        setExpenses(backupData.expenses);
-        if (backupData.shopName !== undefined) {
-          setShopName(backupData.shopName);
-          localStorage.setItem('hisab_khata_shop_name', backupData.shopName);
-        }
-        localStorage.setItem('hisab_khata_transactions', JSON.stringify(backupData.transactions));
-        localStorage.setItem('hisab_khata_expenses', JSON.stringify(backupData.expenses));
-        localStorage.setItem('hisab_khata_last_updated', String(backupData.updatedAt || Date.now()));
-
-        showToast(isBangla ? 'গুগল ড্রাইভ থেকে সফলভাবে তথ্য রিস্টোর হয়েছে!' : 'Successfully restored data from Google Drive!');
-
-        if (isSyncActive) {
-          triggerCloudSync(backupData.transactions, backupData.expenses, backupData.shopName, userEmail);
-        }
-      } else {
-        showToast(isBangla ? 'ভুল ব্যাকআপ ফরম্যাট!' : 'Invalid backup file format!');
-      }
-    } catch (error: any) {
-      console.error('Google Drive restore failed:', error);
-      if (error.message === 'UNAUTHORIZED') {
-        updateDriveAccessToken(null);
-        showToast(isBangla ? 'গুগল ড্রাইভ সেশন শেষ হয়েছে, দয়া করে পুনরায় কানেক্ট করুন।' : 'Google Drive session expired, please reconnect.');
-      } else {
-        showToast(isBangla ? 'রিস্টোর করতে সমস্যা হয়েছে!' : 'Failed to restore from Google Drive!');
-      }
-    } finally {
-      setIsDriveSyncing(false);
-      setDriveSyncMessage('');
-    }
-  };
-
-  const handleResetDriveBackup = async () => {
-    if (!driveAccessToken) {
-      showToast(isBangla ? 'গুগল ড্রাইভ সংযুক্ত নয়! দয়া করে ড্রাইভ কানেক্ট করুন।' : 'Google Drive not connected! Please connect Drive.');
-      return;
-    }
-
-    const doubleCheck = window.confirm(
-      isBangla 
-        ? '⚠️ আপনি কি আগের সকল গুগল ড্রাইভ ব্যাকআপ ডিলিট করে নতুন করে ব্যাকআপ নিতে চান? এটি ড্রাইভের পূর্বের ব্যাকআপ ফাইল চিরতরে মুছে দেবে এবং বর্তমান ডাটা দিয়ে নতুন ব্যাকআপ সেট করবে।'
-        : '⚠️ Are you sure you want to delete all previous Google Drive backups and start a fresh backup? This will permanently delete the old backup file and create a new one with your current data.'
-    );
-    if (!doubleCheck) return;
-
-    setIsDriveSyncing(true);
-    setDriveSyncMessage(isBangla ? 'আগের ব্যাকআপ ফাইল খোঁজা হচ্ছে...' : 'Searching for previous backup file...');
-
-    try {
-      const fileId = await findBackupFile(driveAccessToken);
-      if (fileId) {
-        setDriveSyncMessage(isBangla ? 'পূর্বের ব্যাকআপ ডিলিট করা হচ্ছে...' : 'Deleting previous backup file...');
-        await deleteBackupFile(driveAccessToken, fileId);
-        showToast(isBangla ? 'আগের ব্যাকআপ ফাইলটি ড্রাইভ থেকে ডিলিট করা হয়েছে।' : 'Previous backup file deleted from Drive.');
-      } else {
-        showToast(isBangla ? 'ড্রাইভে কোনো আগের ব্যাকআপ ফাইল পাওয়া যায়নি। সরাসরি নতুন ব্যাকআপ তৈরি করা হচ্ছে...' : 'No previous backup file found. Creating a brand new backup file directly...');
-      }
-
-      setDriveSyncMessage(isBangla ? 'নতুন করে ব্যাকআপ তৈরি করা হচ্ছে...' : 'Creating brand new backup file...');
-      const backupData: DriveBackupData = {
-        transactions: transactions,
-        expenses: expenses,
-        shopName: shopName,
-        updatedAt: Date.now(),
-        exportDate: new Date().toISOString(),
-        creator: driveEmail,
-        outOfStockItems: outOfStockItems,
-        productRates: productRates,
-      };
-
-      await createBackupFile(driveAccessToken, backupData);
-      showToast(isBangla ? 'পূর্বের ব্যাকআপ সফলভাবে ডিলিট করে একদম নতুন ব্যাকআপ সংরক্ষণ করা হয়েছে!' : 'Successfully deleted previous backup and added a completely brand new backup!');
-    } catch (error: any) {
-      console.error('Google Drive reset backup failed:', error);
-      if (error.message === 'UNAUTHORIZED') {
-        updateDriveAccessToken(null);
-        showToast(isBangla ? 'গুগল ড্রাইভ সেশন শেষ হয়েছে, দয়া করে পুনরায় কানেক্ট করুন।' : 'Google Drive session expired, please reconnect.');
-      } else {
-        showToast(isBangla ? 'ব্যাকআপ ডিলিট ও রিসেট করতে সমস্যা হয়েছে!' : 'Failed to delete and reset backup!');
-      }
-    } finally {
-      setIsDriveSyncing(false);
-      setDriveSyncMessage('');
-    }
-  };
-
-  const handleDriveConnect = async () => {
-    if (isCapacitor) {
-      setIsDriveSyncing(true);
-      setDriveSyncMessage(isBangla ? 'গুগল ড্রাইভ কানেক্ট করা হচ্ছে...' : 'Connecting Google Drive...');
-      try {
-        // Try Native Google Sign-In SDK with drive scopes first
-        const result = await FirebaseAuthentication.signInWithGoogle({
-          scopes: ['https://www.googleapis.com/auth/drive.file']
-        });
-        const accessToken = result.credential?.accessToken;
-        const email = result.user?.email;
-        if (accessToken && email) {
-          setDriveEmail(email);
-          updateDriveAccessToken(accessToken);
-          localStorage.setItem('hisab_khata_drive_email', email);
-          showToast(isBangla ? `গুগল ড্রাইভ সংযুক্ত হয়েছে: ${email}` : `Connected Google Drive: ${email}`);
-          setIsDriveSyncing(false);
-          setDriveSyncMessage('');
-          return;
-        } else {
-          throw new Error('No Access Token or Email received from Native SDK for Google Drive');
-        }
-      } catch (nativeErr: any) {
-        console.warn('Native Google Drive Auth failed, falling back to Chrome Custom Tabs:', nativeErr);
-        // Fallback automatically to Chrome Custom Tabs
-        setDriveSyncMessage(isBangla ? 'গুগল ব্রাউজার ওপেন করা হচ্ছে...' : 'Opening Google browser...');
-        try {
-          const url = getAuthRedirectUrl('app-drive');
-          await Browser.open({ url });
-        } catch (e: any) {
-          console.error('Error launching Custom Tab for Drive:', e);
-          showToast(isBangla ? 'গুগল কানেক্ট ওপেন করতে ব্যর্থ হয়েছে!' : 'Failed to launch Google Connect!');
-        } finally {
-          setIsDriveSyncing(false);
-          setDriveSyncMessage('');
-        }
-      }
-      return;
-    }
-    setIsDriveSyncing(true);
-    setDriveSyncMessage(isBangla ? 'গুগল ড্রাইভ কানেক্ট করা হচ্ছে...' : 'Connecting Google Drive...');
-    try {
-      const result = await signInWithGoogleForDrive();
-      setDriveEmail(result.email);
-      updateDriveAccessToken(result.accessToken);
-      localStorage.setItem('hisab_khata_drive_email', result.email);
-      showToast(isBangla ? `গুগল ড্রাইভ সংযুক্ত হয়েছে: ${result.email}` : `Connected Google Drive: ${result.email}`);
-    } catch (error) {
-      console.error('Drive connect error:', error);
-      showToast(isBangla ? 'গুগল ড্রাইভ সংযোগ ব্যর্থ হয়েছে!' : 'Google Drive connection failed!');
-    } finally {
-      setIsDriveSyncing(false);
-      setDriveSyncMessage('');
-    }
-  };
-
-  const handleDriveDisconnect = async () => {
-    setDriveEmail('');
-    updateDriveAccessToken(null);
-    localStorage.removeItem('hisab_khata_drive_email');
-    setIsDriveAutoBackupActive(false);
-    localStorage.setItem('hisab_khata_drive_auto_backup', 'false');
-    showToast(isBangla ? 'গুগল ড্রাইভ সংযোগ বিচ্ছিন্ন করা হয়েছে' : 'Google Drive disconnected');
-  };
 
   // Language Toggler
   const toggleLanguage = () => {
@@ -1845,83 +1354,7 @@ export default function App() {
     triggerCloudSync([], [], shopName, userEmail, [], []);
   };
 
-  if (appAuthMode !== 'none') {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-800 antialiased font-sans">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-8 flex flex-col items-center text-center">
-          <img
-            src={logoImg}
-            alt="হিসাব খাতা"
-            className="h-16 w-16 rounded-2xl object-cover shadow-md mb-6 border border-slate-150 animate-bounce"
-            referrerPolicy="no-referrer"
-          />
-          <h2 className="text-xl font-extrabold text-slate-900 mb-2">
-            {isBangla ? 'হিসাব খাতা গুগল কানেক্ট' : 'Hisab Khata Google Connect'}
-          </h2>
-          
-          {appAuthStatus === 'loading' && (
-            <div className="flex flex-col items-center mt-4">
-              <div className="w-12 h-12 rounded-full border-4 border-teal-500 border-t-transparent animate-spin mb-6"></div>
-              <p className="text-sm font-medium text-slate-600 animate-pulse">
-                {appAuthMode === 'auth'
-                  ? (isBangla ? 'গুগল দিয়ে মোবাইল অ্যাপে লগইন করা হচ্ছে...' : 'Logging into mobile app via Google...')
-                  : (isBangla ? 'গুগল ড্রাইভ ব্যাকআপ সংযোগ করা হচ্ছে...' : 'Connecting Google Drive Backup...')}
-              </p>
-              <p className="text-xs text-slate-400 mt-2">
-                {isBangla ? 'অনুগ্রহ করে অপেক্ষা করুন, এই স্ক্রিনটি স্বয়ংক্রিয়ভাবে বন্ধ হয়ে যাবে।' : 'Please wait, this screen will close automatically.'}
-              </p>
-            </div>
-          )}
 
-          {appAuthStatus === 'idle' && (
-            <div className="mt-4 w-full">
-              <p className="text-sm text-slate-600 mb-6">
-                {isBangla 
-                  ? 'গুগল কানেক্ট শুরু করতে নিচের বাটনে চাপ দিন।' 
-                  : 'Press the button below to initiate Google Connect.'}
-              </p>
-              <button
-                onClick={handleStartWebAuth}
-                className="w-full py-3.5 px-6 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer border-0"
-              >
-                {isBangla ? 'কানেক্ট করুন' : 'Connect Now'}
-              </button>
-            </div>
-          )}
-
-          {appAuthStatus === 'success' && (
-            <div className="flex flex-col items-center mt-4">
-              <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 mb-4 font-black text-2xl">✓</div>
-              <p className="text-sm font-bold text-emerald-700">
-                {isBangla ? 'সফলভাবে গুগল কানেক্ট হয়েছে!' : 'Google Connect Successful!'}
-              </p>
-              <p className="text-xs text-slate-500 mt-2">
-                {isBangla ? 'আপনাকে মোবাইল অ্যাপে ফিরিয়ে নেওয়া হচ্ছে...' : 'Returning you to the mobile app...'}
-              </p>
-            </div>
-          )}
-
-          {appAuthStatus === 'error' && (
-            <div className="mt-4 w-full flex flex-col items-center">
-              <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mb-4 font-black text-2xl">✗</div>
-              <p className="text-sm font-bold text-rose-700">
-                {isBangla ? 'কানেক্ট করতে সমস্যা হয়েছে!' : 'Connection Failed!'}
-              </p>
-              <p className="text-xs text-slate-500 mt-2 mb-6 max-w-xs overflow-hidden text-ellipsis text-rose-500">
-                {appAuthError}
-              </p>
-              <button
-                onClick={handleStartWebAuth}
-                className="w-full py-3 px-6 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl transition-all active:scale-95 flex items-center justify-center cursor-pointer border-0"
-              >
-                {isBangla ? 'আবার চেষ্টা করুন' : 'Try Again'}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-slate-800 antialiased font-sans flex flex-col pb-24 relative overflow-x-hidden">
@@ -1930,20 +1363,20 @@ export default function App() {
       <div className="fixed top-0 left-0 right-0 z-40 flex flex-col shadow-xs border-b border-slate-100">
         {/* 🚀 Top Simulated Cloud Sync Active Progress Bar */}
         <AnimatePresence>
-          {(isSyncing || isDriveSyncing) && (
+          {isSyncing && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className={`${isDriveSyncing ? 'bg-indigo-600' : 'bg-teal-600'} text-white text-xs py-2 px-4 flex items-center justify-between shadow-inner relative overflow-hidden z-50`}
+              className="bg-teal-600 text-white text-xs py-2 px-4 flex items-center justify-between shadow-inner relative overflow-hidden z-50"
               id="sync-progressbar"
             >
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
-                <span className="font-medium">{syncMessage || driveSyncMessage}</span>
+                <span className="font-medium">{syncMessage}</span>
               </div>
               {/* Infinite loading line */}
-              <div className={`absolute bottom-0 left-0 h-[2px] ${isDriveSyncing ? 'bg-indigo-300' : 'bg-emerald-300'} animate-[loading_1.5s_infinite_linear]`} style={{ width: '40%' }}></div>
+              <div className="absolute bottom-0 left-0 h-[2px] bg-emerald-300 animate-[loading_1.5s_infinite_linear]" style={{ width: '40%' }}></div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -2021,7 +1454,7 @@ export default function App() {
                   <CalcIcon className="h-4 w-4 text-slate-600" />
                 </button>
      
-                {/* Google Cloud Sync Controller */}
+                {/* Cloud Sync Controller */}
                 <button
                   type="button"
                   onClick={handleToggleSync}
@@ -2030,7 +1463,7 @@ export default function App() {
                       ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                       : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
                   } w-8 sm:w-auto sm:px-2.5 sm:gap-1.5`}
-                  id="google-sync-toggle"
+                  id="cloud-sync-toggle"
                   title={isSyncActive ? (isBangla ? 'ক্লাউড সিঙ্ক চালু' : 'Cloud Sync Active') : (isBangla ? 'ক্লাউড সিঙ্ক বন্ধ' : 'Cloud Sync Inactive')}
                 >
                   {isSyncActive ? (
@@ -3173,81 +2606,6 @@ export default function App() {
                 )}
               </div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-3xs space-y-3">
-                <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <TrendingUp className="h-4 w-4 text-emerald-600" />
-                  <span>{isBangla ? 'বেচাকেনার তালিকা' : 'Sales Ledger'}</span>
-                </h3>
-                
-                <div className="space-y-2">
-                  {todayTransactions.length === 0 ? (
-                    <div className="text-center py-10 text-xs text-slate-400">
-                      {isBangla ? 'ঐ তারিখে কোনো বেচাকেনা হিসাব নেই।' : 'No sales entries on this date.'}
-                    </div>
-                  ) : (
-                    <>
-                      {(showAllHistoryTxs ? todayTransactions : todayTransactions.slice(0, 6)).map(tx => (
-                        <div key={tx.id} className="p-3 bg-slate-50 border border-slate-200/50 rounded-xl flex items-center justify-between">
-                          <div>
-                            <h4 className="text-xs font-bold text-slate-800">{tx.product}</h4>
-                            <span className="text-[9px] text-slate-400 block mt-0.5">
-                              {tx.customer ? `${isBangla ? 'কাস্টমার' : 'Customer'}: ${tx.customer}` : (isBangla ? 'নগদ বিক্রি' : 'Cash Sale')} • {formatTimeStr(tx.time, isBangla)}
-                            </span>
-                          </div>
-                          <span className={`text-xs font-black ${tx.isCash ? 'text-emerald-600' : 'text-amber-600'}`}>
-                            {formatCurrency(tx.amount, isBangla)}
-                          </span>
-                        </div>
-                      ))}
-                      
-                      {todayTransactions.length > 6 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllHistoryTxs(!showAllHistoryTxs)}
-                          className="w-full mt-2 py-2 text-xs font-extrabold text-indigo-600 hover:text-indigo-800 hover:bg-slate-100/50 border border-slate-200/50 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1 active:scale-98"
-                        >
-                          <span>
-                            {showAllHistoryTxs 
-                              ? (isBangla ? 'কম দেখান' : 'Show Less') 
-                              : (isBangla ? `আরও ${toBanglaNumber(todayTransactions.length - 6)}টি দেখুন` : `Show ${todayTransactions.length - 6} More`)
-                            }
-                          </span>
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-3xs space-y-3">
-                <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Coins className="h-4 w-4 text-rose-600" />
-                  <span>{isBangla ? 'খরচের তালিকা' : 'Expense Ledger'}</span>
-                </h3>
-
-                <div className="space-y-2">
-                  {todayExpenses.length === 0 ? (
-                    <div className="text-center py-10 text-xs text-slate-400">
-                      {isBangla ? 'ঐ তারিখে কোনো খরচের খতিয়ান নেই।' : 'No expense entries on this date.'}
-                    </div>
-                  ) : (
-                    todayExpenses.map(ex => (
-                      <div key={ex.id} className="p-3 bg-slate-50 border border-slate-200/50 rounded-xl flex items-center justify-between">
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-800">{ex.description}</h4>
-                          <span className="text-[9px] text-slate-400 block mt-0.5">{formatTimeStr(ex.time, isBangla)}</span>
-                        </div>
-                        <span className="text-xs font-black text-rose-600">
-                          {formatCurrency(ex.amount, isBangla)}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
           </motion.div>
         )}
 
@@ -3315,79 +2673,6 @@ export default function App() {
               </h3>
 
               <div className="space-y-4">
-                {isCapacitor && !userEmail && (
-                  <div className="p-3.5 bg-amber-50/85 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-2 shadow-xs">
-                    <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                      <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                      <span>
-                        {isBangla ? 'মোবাইল অ্যাপ নোটিশ' : 'Mobile App Notice'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-amber-900 font-medium">
-                      {isBangla ? (
-                        <>
-                          গুগল সিকিউরিটির (disallowed_useragent) কারণে ইনস্টল করা APK-এর ভেতর সরাসরি গুগল সাইন-ইন সাময়িকভাবে ব্লক থাকে। 
-                          <br /><br />
-                          <span className="text-teal-800 font-extrabold">শতভাগ কার্যকরী সহজ সমাধান:</span>
-                          <br />
-                          নিচে <strong className="text-slate-800">"পছন্দের সিঙ্ক ইমেইল আইডি"</strong> ঘরে আপনার যেকোনো ইমেইল সরাসরি লিখে নিচে <strong className="text-slate-800">"চালু করুন"</strong> বাটনে ক্লিক করলেই আপনার সব তথ্য ক্লাউডে সম্পূর্ণ সুরক্ষিত থাকবে! কোনো পাসওয়ার্ড বা গুগল লগইন এর প্রয়োজন নেই।
-                        </>
-                      ) : (
-                        <>
-                          Due to Google Security policies (disallowed_useragent), Google Sign-In is temporarily blocked inside installed APKs.
-                          <br /><br />
-                          <span className="text-teal-800 font-extrabold">Guaranteed 100% Working Solution:</span>
-                          <br />
-                          Simply type any of your emails in the <strong className="text-slate-800 font-bold">"Preferred Sync Email ID"</strong> field below and click <strong className="text-slate-800 font-bold">"Enable"</strong>. Your data will be fully backed up and synced without needing any password or Google Login!
-                        </>
-                      )}
-                    </p>
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-2.5">
-                  <button
-                    type="button"
-                    onClick={handleGoogleLogin}
-                    disabled={isSyncing}
-                    className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
-                  >
-                    <svg className="h-4 w-4" viewBox="0 0 24 24">
-                      <path
-                        fill="#EA4335"
-                        d="M12.24 10.285V14.4h6.887c-.275 1.565-1.88 4.6-6.887 4.6-4.33 0-7.859-3.578-7.859-8s3.53-8 7.859-8c2.46 0 4.105 1.025 5.047 1.926l3.227-3.103C18.28 1.845 15.548 1 12.24 1A11 11 0 0 0 1.24 12a11 11 0 0 0 11 11c11.5 0 12.24-8.09 11.965-11.715H12.24z"
-                      />
-                    </svg>
-                    <span>{isBangla ? 'গুগল দিয়ে সাইন-ইন করুন' : 'Sign in with Google'}</span>
-                  </button>
-
-                  {userEmail && (
-                    <div className="flex items-center justify-between px-3 py-2 bg-teal-50/50 rounded-lg border border-teal-100/50">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></span>
-                        <span className="text-[11px] text-teal-800 font-bold truncate max-w-[180px] font-sans">
-                          {userEmail}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleGoogleLogout}
-                        className="text-[10px] text-rose-600 hover:text-rose-800 font-extrabold cursor-pointer hover:bg-rose-50 px-2 py-0.5 rounded"
-                      >
-                        {isBangla ? 'লগআউট' : 'Logout'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="relative flex py-1 items-center">
-                  <div className="flex-grow border-t border-slate-150"></div>
-                  <span className="flex-shrink mx-3 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                    {isBangla ? 'অথবা নিজে লিখুন' : 'or enter manually'}
-                  </span>
-                  <div className="flex-grow border-t border-slate-150"></div>
-                </div>
-
                 <div className="space-y-1">
                   <label className="block text-xs font-bold text-slate-600">
                     {isBangla ? 'পছন্দের সিঙ্ক ইমেইল আইডি' : 'Preferred Sync Email ID'}
@@ -3403,6 +2688,24 @@ export default function App() {
                     className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold font-sans"
                   />
                 </div>
+
+                {currentUser && currentUser.email && (
+                  <div className="flex items-center justify-between px-3 py-2 bg-teal-50/50 rounded-lg border border-teal-100/50">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></span>
+                      <span className="text-[11px] text-teal-800 font-bold truncate max-w-[180px] font-sans">
+                        {currentUser.email}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="text-[10px] text-rose-600 hover:text-rose-800 font-extrabold cursor-pointer hover:bg-rose-50 px-2 py-0.5 rounded border border-rose-100"
+                    >
+                      {isBangla ? 'লগআউট' : 'Logout'}
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-150 rounded-xl">
                   <div className="flex items-center gap-2">
@@ -3453,275 +2756,6 @@ export default function App() {
                       <RotateCcw className="h-4 w-4 text-rose-600" />
                       <span>{isBangla ? 'ব্যাকআপ রিসেট করুন' : 'Reset Backup'}</span>
                     </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Google Drive Backup Card */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block">
-                  {isBangla ? 'গুগল ড্রাইভ ব্যাকআপ' : 'Google Drive Backup'}
-                </h3>
-                <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded font-black">Drive v3</span>
-              </div>
-
-              <div className="space-y-4">
-                {/* Connection status & Google sign-in */}
-                <div className="space-y-2.5">
-                  {isCapacitor && !driveEmail && (
-                    <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-3 shadow-xs">
-                      <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                        <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                        <span>
-                          {isBangla ? 'মোবাইল অ্যাপ গুগল ড্রাইভ সংযোগ' : 'Mobile App Google Drive Connection'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] leading-relaxed text-amber-900 font-medium">
-                        {isBangla ? (
-                          <>
-                            মোবাইল অ্যাপের ভেতরে গুগল ড্রাইভ সংযোগ করার জন্য নিচের সঠিক সার্ভার কানেকশন টাইপ সিলেক্ট করুন:
-                          </>
-                        ) : (
-                          <>
-                            To connect Google Drive inside the mobile app, select the correct server connection type below:
-                          </>
-                        )}
-                      </p>
-
-                      <div className="p-2 bg-white/60 rounded-lg space-y-1.5">
-                        <span className="block text-[9px] font-black text-slate-500 uppercase tracking-wider">
-                          {isBangla ? 'কানেকশন সার্ভার' : 'Connection Server'}
-                        </span>
-                        <div className="grid grid-cols-2 p-0.5 bg-slate-200/60 rounded-lg">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAuthServerType('dev');
-                              localStorage.setItem('hisab_khata_auth_server_type', 'dev');
-                            }}
-                            className={`py-1 text-[10px] font-black rounded transition-all cursor-pointer ${
-                              authServerType === 'dev'
-                                ? 'bg-white text-teal-700 shadow-xs'
-                                : 'text-slate-500'
-                            }`}
-                          >
-                            {isBangla ? 'ডেভ (Dev)' : 'Dev'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAuthServerType('pre');
-                              localStorage.setItem('hisab_khata_auth_server_type', 'pre');
-                            }}
-                            className={`py-1 text-[10px] font-black rounded transition-all cursor-pointer ${
-                              authServerType === 'pre'
-                                ? 'bg-white text-indigo-700 shadow-xs'
-                                : 'text-slate-500'
-                            }`}
-                          >
-                            {isBangla ? 'লাইভ (Live)' : 'Live'}
-                          </button>
-                        </div>
-                      </div>
-
-                      <p className="text-[11px] leading-relaxed text-amber-900 font-medium">
-                        {isBangla ? (
-                          <>
-                            <span className="font-bold text-teal-800">বিকল্প সহজ সমাধান:</span> ড্রাইভ ব্যাকআপের পরিবর্তে উপরে উল্লেখিত <span className="font-extrabold text-slate-900">"ক্লাউড সিঙ্ক অ্যাকাউন্ট"</span> ব্যবহার করুন! সেখানে শুধু আপনার ইমেইল এড্রেস লিখে "চালু করুন" বাটনে ক্লিক করলেই সম্পূর্ণ ফ্রিতে ও কোনো ঝামেলা ছাড়াই আপনার সব ডাটা ক্লাউডে সুরক্ষিত থাকবে।
-                          </>
-                        ) : (
-                          <>
-                            <span className="font-bold text-teal-800">Alternative:</span> Instead of Drive Backup, please use the <span className="font-extrabold text-slate-900">"Cloud Sync Account"</span> option above! Simply type your email and enable it to back up all your data smoothly.
-                          </>
-                        )}
-                      </p>
-                    </div>
-                  )}
-
-                  {isIframe && !driveEmail && (
-                    <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-2 shadow-xs">
-                      <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                        <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                        <span>
-                          {isBangla ? 'ব্রাউজার সিকিউরিটি নোটিশ' : 'Browser Security Notice'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] leading-relaxed text-amber-900 font-medium">
-                        {isBangla ? (
-                          <>
-                            ক্রোম বা মোবাইল ব্রাউজার সিকিউরিটির (iframe restriction) কারণে আইফ্রেমের ভেতরে ড্রাইভ ব্যাকআপ চালু করার সময় স্ক্রিন ব্ল্যাঙ্ক হয়ে থাকতে পারে।
-                            <br />
-                            <span className="font-bold text-amber-950">সমাধান:</span> নিচের বাটনে ক্লিক করে অ্যাপটি সরাসরি নতুন ট্যাবে ওপেন করুন এবং সেখান থেকে সহজেই ড্রাইভ ব্যাকআপ অন করুন।
-                          </>
-                        ) : (
-                          <>
-                            Due to browser security policies inside an iframe (third-party cookie restriction), the Google Drive connection popup may remain blank.
-                            <br />
-                            <span className="font-bold text-amber-950">Solution:</span> Click below to open the app in a new tab, then enable Drive backup from there.
-                          </>
-                        )}
-                      </p>
-                      <a
-                        href={window.location.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex w-full items-center justify-center gap-1.5 py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px] transition-colors shadow-xs"
-                      >
-                        <Globe className="h-3.5 w-3.5" />
-                        <span>{isBangla ? 'নতুন ট্যাবে অ্যাপটি খুলুন' : 'Open App in New Tab'}</span>
-                      </a>
-                    </div>
-                  )}
-
-                  {!driveEmail ? (
-                    <button
-                      type="button"
-                      onClick={handleDriveConnect}
-                      disabled={isDriveSyncing}
-                      className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
-                    >
-                      <svg className="h-4 w-4" viewBox="0 0 24 24">
-                        <path
-                          fill="#EA4335"
-                          d="M12.24 10.285V14.4h6.887c-.275 1.565-1.88 4.6-6.887 4.6-4.33 0-7.859-3.578-7.859-8s3.53-8 7.859-8c2.46 0 4.105 1.025 5.047 1.926l3.227-3.103C18.28 1.845 15.548 1 12.24 1A11 11 0 0 0 1.24 12a11 11 0 0 0 11 11c11.5 0 12.24-8.09 11.965-11.715H12.24z"
-                        />
-                      </svg>
-                      <span>{isBangla ? 'ড্রাইভ ব্যাকআপ চালু করুন' : 'Enable Drive Backup'}</span>
-                    </button>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/50 rounded-lg border border-indigo-100/50">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="inline-block h-2 w-2 rounded-full bg-indigo-500 animate-pulse flex-shrink-0"></span>
-                          <span className="text-[11px] text-indigo-800 font-bold truncate max-w-[180px] font-sans">
-                            {driveEmail}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleDriveDisconnect}
-                          className="text-[10px] text-rose-600 hover:text-rose-800 font-extrabold cursor-pointer hover:bg-rose-50 px-2 py-0.5 rounded"
-                        >
-                          {isBangla ? 'সংযোগ বিচ্ছিন্ন' : 'Disconnect'}
-                        </button>
-                      </div>
-
-                      {/* Token status if expired */}
-                      {!driveAccessToken && (
-                        <div className="p-2 bg-amber-50 rounded-lg border border-amber-100 flex items-start gap-1.5">
-                          <AlertCircle className="h-3.5 w-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
-                          <div className="text-[10px] text-amber-800 w-full">
-                            <span className="font-bold">
-                              {isBangla ? 'ড্রাইভ কানেক্ট করুন:' : 'Session expired:'}
-                            </span>{' '}
-                            {isBangla
-                              ? 'অটো-ব্যাকআপ বা ম্যানুয়াল ব্যাকআপের জন্য প্রথমে ড্রাইভ কানেক্ট করুন।'
-                              : 'Click connect to log into Drive for backing up.'}
-                            
-                            {isCapacitor ? (
-                              <div className="mt-1.5 p-1.5 bg-amber-100/50 rounded text-[9px] text-amber-900 leading-normal font-bold">
-                                {isBangla 
-                                  ? '⚠️ ইনস্টলড APK-তে ড্রাইভ কানেক্ট কাজ করবে না। ব্যাকআপের জন্য উপরের "ক্লাউড সিঙ্ক অ্যাকাউন্ট" ব্যবহার করুন।' 
-                                  : '⚠️ Drive connection fails on APK. Please use "Cloud Sync Account" above instead.'}
-                              </div>
-                            ) : isIframe ? (
-                              <a
-                                href={window.location.href}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-2 inline-flex w-full items-center justify-center gap-1 py-1 px-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[9px] transition-colors shadow-xs"
-                              >
-                                <Globe className="h-3 w-3" />
-                                <span>{isBangla ? 'নতুন ট্যাবে অ্যাপ খুলুন' : 'Open App in New Tab'}</span>
-                              </a>
-                            ) : (
-                              <button
-                                onClick={handleDriveConnect}
-                                className="block mt-1 text-[10px] text-indigo-700 underline font-bold cursor-pointer"
-                              >
-                                {isBangla ? 'কানেক্ট করুন' : 'Connect Now'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Backup & Restore controls */}
-                {driveEmail && (
-                  <div className="space-y-3">
-                    {/* Auto backup switch */}
-                    <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-150 rounded-xl">
-                      <div className="flex items-center gap-2">
-                        <Cloud className="h-4 w-4 text-indigo-600" />
-                        <div>
-                          <span className="text-xs font-bold text-slate-700 block">
-                            {isBangla ? 'অটো-ব্যাকআপ' : 'Auto-Backup'}
-                          </span>
-                          <span className="text-[9px] text-slate-400 block -mt-1 font-medium">
-                            {isBangla ? 'প্রতি পরিবর্তনের পর স্বয়ংক্রিয় ড্রাইভ ব্যাকআপ' : 'Automatic upload on change'}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextVal = !isDriveAutoBackupActive;
-                          setIsDriveAutoBackupActive(nextVal);
-                          localStorage.setItem('hisab_khata_drive_auto_backup', String(nextVal));
-                          if (nextVal && !driveAccessToken) {
-                            handleDriveConnect();
-                          } else if (nextVal && driveAccessToken) {
-                            triggerDriveBackup(transactions, expenses, shopName, false);
-                          }
-                        }}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
-                          isDriveAutoBackupActive ? 'bg-indigo-600' : 'bg-slate-200'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                            isDriveAutoBackupActive ? 'translate-x-4.5' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-
-                    {/* Manual buttons */}
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        onClick={() => triggerDriveBackup(transactions, expenses, shopName, false)}
-                        disabled={isDriveSyncing || !driveAccessToken}
-                        className="py-2 px-2 border border-indigo-100 bg-indigo-50/50 hover:bg-indigo-50 rounded-xl text-xs font-bold text-indigo-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors disabled:opacity-50"
-                      >
-                        <FileUp className="h-4 w-4 text-indigo-600" />
-                        <span>{isBangla ? 'ড্রাইভে ব্যাকআপ' : 'Backup to Drive'}</span>
-                      </button>
-
-                      <button
-                        onClick={triggerDriveRestore}
-                        disabled={isDriveSyncing || !driveAccessToken}
-                        className="py-2 px-2 border border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 rounded-xl text-xs font-bold text-emerald-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors disabled:opacity-50"
-                      >
-                        <FileDown className="h-4 w-4 text-emerald-600" />
-                        <span>{isBangla ? 'ড্রাইভ রিস্টোর' : 'Restore from Drive'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleResetDriveBackup}
-                        disabled={isDriveSyncing || !driveAccessToken}
-                        className="col-span-2 py-2.5 px-2.5 border border-rose-100 bg-rose-50/60 hover:bg-rose-50 rounded-xl text-xs font-bold text-rose-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors disabled:opacity-50"
-                      >
-                        <Trash2 className="h-4 w-4 text-rose-600" />
-                        <span>{isBangla ? 'আগের ব্যাকআপ মুছে নতুন ব্যাকআপ নিন' : 'Delete previous & start fresh backup'}</span>
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
@@ -3877,7 +2911,7 @@ export default function App() {
                         </p>
                         <button
                           type="button"
-                          onClick={handleGoogleLogout}
+                          onClick={handleLogout}
                           className="mt-3 text-[10px] text-rose-600 hover:text-rose-800 font-extrabold cursor-pointer hover:bg-rose-50 px-2.5 py-1.5 border border-rose-100 rounded-lg transition-colors flex items-center justify-center gap-1"
                         >
                           <LogOut className="h-3.5 w-3.5" />
@@ -3924,131 +2958,54 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {/* Security warning alert */}
-                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex gap-2 text-amber-900 text-[11px] leading-relaxed font-bold">
-                        <AlertCircle className="h-4.5 w-4.5 text-amber-600 shrink-0" />
-                        <span>
-                          {isBangla 
-                            ? 'অননুমোদিত প্রবেশ রোধে এখন আপনার খাতা সিঙ্ক করতে গুগল বা ইমেইল ও পাসওয়ার্ড দিয়ে নিরাপদ লগইন আবশ্যক।' 
-                            : 'To prevent unauthorized access, secure login via Google or Email & Password is now required to sync.'}
-                        </span>
-                      </div>
-
-                      {/* Google Login Option */}
+                      {/* Google Sign-In Option (Recommended & Secure) */}
                       <button
                         type="button"
                         onClick={handleGoogleLogin}
                         disabled={isSyncing}
-                        className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
+                        className="w-full py-3 px-4 bg-white hover:bg-slate-50 text-slate-700 font-extrabold text-xs rounded-xl border border-slate-200 shadow-3xs flex items-center justify-center gap-2 transition-all cursor-pointer h-11"
+                        id="google-signin-btn"
                       >
-                        <svg className="h-4 w-4" viewBox="0 0 24 24">
+                        <svg className="h-4 w-4 mr-1 shrink-0" viewBox="0 0 24 24">
                           <path
                             fill="#EA4335"
-                            d="M12.24 10.285V14.4h6.887c-.275 1.565-1.88 4.6-6.887 4.6-4.33 0-7.859-3.578-7.859-8s3.53-8 7.859-8c2.46 0 4.105 1.025 5.047 1.926l3.227-3.103C18.28 1.845 15.548 1 12.24 1A11 11 0 0 0 1.24 12a11 11 0 0 0 11 11c11.5 0 12.24-8.09 11.965-11.715H12.24z"
+                            d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.48 14.99 1 12 1 7.35 1 3.37 3.65 1.39 7.56l3.89 3.02C6.18 7.55 8.87 5.04 12 5.04z"
+                          />
+                          <path
+                            fill="#4285F4"
+                            d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.43c-.28 1.44-1.1 2.66-2.33 3.48l3.61 2.8c2.11-1.95 3.78-4.83 3.78-8.43z"
+                          />
+                          <path
+                            fill="#FBBC05"
+                            d="M5.28 14.42c-.25-.75-.39-1.55-.39-2.42s.14-1.67.39-2.42L1.39 7.56C.5 9.36 0 11.4 0 13.5s.5 4.14 1.39 5.94l3.89-3.02z"
+                          />
+                          <path
+                            fill="#34A853"
+                            d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.61-2.8c-1.12.75-2.54 1.21-4.35 1.21-3.13 0-5.82-2.51-6.72-5.54l-3.89 3.02C3.37 20.35 7.35 23 12 23z"
                           />
                         </svg>
-                        <span>{isBangla ? 'গুগল দিয়ে নিরাপদ সাইন-ইন' : 'Secure Google Sign-In'}</span>
+                        <span>{isBangla ? 'গুগল অ্যাকাউন্ট দিয়ে লগইন (নিরাপদ)' : 'Sign in with Google (Secure)'}</span>
                       </button>
 
-                      {showAuthHelp && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          className="p-3.5 bg-indigo-50 border border-indigo-150 rounded-xl text-xs text-indigo-950 space-y-2.5 shadow-sm"
-                          id="auth-help-box"
-                        >
-                          <div className="flex items-center gap-1.5 font-black text-indigo-950">
-                            <AlertCircle className="h-4 w-4 text-indigo-600 shrink-0" />
-                            <span>
-                              {isBangla ? 'গুগল সাইন-ইন কেন কাজ করছে না?' : 'Why is Google Sign-In blocked?'}
-                            </span>
-                          </div>
-                          <p className="text-[11px] leading-relaxed text-slate-600 font-bold">
-                            {isBangla ? (
-                              <>
-                                গুগল ক্রোম ও মোবাইল ব্রাউজারের কঠোর সিকিউরিটির কারণে এই টেস্টিং ডোমেইনে ব্রাউজার ডেটা (sessionStorage) শেয়ারিং বন্ধ থাকে, যা গুগল সাইন-ইন সাময়িকভাবে বাধাগ্রস্ত করে।
-                                <br /><br />
-                                <span className="text-teal-700 font-extrabold">শতভাগ কার্যকারী বিকল্প সহজ সমাধান:</span>
-                                <br />
-                                নিচে ইমেইল ও পাসওয়ার্ড ঘরে আপনার যেকোনো ইমেইল ও নতুন পাসওয়ার্ড দিয়ে সরাসরি <strong className="text-slate-800">"নিবন্ধন করুন"</strong> বা আপনার তৈরি অ্যাকাউন্ট দিয়ে <strong className="text-slate-800">"লগইন করুন"</strong>। এটি সম্পূর্ণ সুরক্ষিত এবং কোনো পাসওয়ার্ড ছাড়া কেউ আপনার ডাটা দেখতে পারবে না!
-                                {isCapacitor && (
-                                  <>
-                                    <br /><br />
-                                    <span className="text-amber-700 font-extrabold">মোবাইল অ্যাপ (APK) ব্যবহারকারীদের জন্য:</span>
-                                    <br />
-                                    গুগল সিকিউরিটি পলিসি অনুযায়ী ইনস্টলড মোবাইল অ্যাপের ভেতর সরাসরি গুগল সাইন-ইন বাটন সাময়িকভাবে সাপোর্ট করে না। 
-                                    <br />
-                                    তাই নিচে পাসওয়ার্ড দিয়ে একাউন্ট তৈরি করে ব্যবহার করুন, এটি ১০০% নিরাপদ।
-                                  </>
-                                )}
-                                {isIframe && (
-                                  <>
-                                    <br /><br />
-                                    <span className="text-amber-700 font-extrabold">অথবা, সরাসরি গুগল সাইন-ইন করতে চান?</span>
-                                    <br />
-                                    নিচে "নতুন ট্যাবে অ্যাপ খুলুন" বাটনে ক্লিক করে অ্যাপটি নতুন ট্যাবে ওপেন করুন। সেখানে সরাসরি গুগল সাইন-ইন করা যাবে!
-                                    <a
-                                      href={window.location.href}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[10px] transition-colors shadow-xs"
-                                    >
-                                      <Globe className="h-3.5 w-3.5" />
-                                      <span>নতুন ট্যাবে অ্যাপটি খুলুন</span>
-                                    </a>
-                                  </>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                Google Chrome restricts cross-domain popups on temporary test environments due to third-party cookie and storage-partitioning security policies.
-                                <br /><br />
-                                <span className="text-teal-700 font-extrabold">Guaranteed Easy Alternative:</span>
-                                <br />
-                                Use the Email and Password option below. Register a new account or sign in with your password. It is 100% secure, and no one else can read your data without your password!
-                                {isIframe && (
-                                  <>
-                                    <br /><br />
-                                    <span className="text-amber-700 font-extrabold">Or, want to use Google Sign-In directly?</span>
-                                    <br />
-                                    Click the button below to open this app in a new tab where Google Sign-In is fully supported.
-                                    <a
-                                      href={window.location.href}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[10px] transition-colors shadow-xs"
-                                    >
-                                      <Globe className="h-3.5 w-3.5" />
-                                      <span>Open App in New Tab</span>
-                                    </a>
-                                  </>
-                                )}
-                              </>
-                            )}
-                          </p>
-                          <div className="flex justify-end pt-1 border-t border-indigo-100">
-                            <button
-                              type="button"
-                              onClick={() => setShowAuthHelp(false)}
-                              className="text-[10px] font-black text-indigo-700 hover:text-indigo-900 underline cursor-pointer"
-                            >
-                              {isBangla ? 'বুঝেছি, এটি লুকান' : 'Got it, hide this'}
-                            </button>
-                          </div>
-                        </motion.div>
+                      {isIframe && (
+                        <p className="text-[10px] text-amber-600 bg-amber-50 p-2.5 rounded-xl leading-normal font-bold border border-amber-100">
+                          ⚠️ {isBangla 
+                            ? 'আপনি প্রিভিউ ফ্রেমের ভেতরে আছেন। গুগল লগইন সফল করতে ওপরের "Open App" বাটনে ক্লিক করে নতুন ট্যাবে ওপেন করুন।' 
+                            : 'You are inside a preview frame. To log in with Google, click "Open App" at the top to open in a new tab.'}
+                        </p>
                       )}
 
                       <div className="relative flex py-1 items-center">
                         <div className="flex-grow border-t border-slate-150"></div>
-                        <span className="flex-shrink mx-3 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                          {isBangla ? 'অথবা পাসওয়ার্ড দিয়ে সিঙ্ক করুন' : 'or sync with password'}
+                        <span className="flex-shrink mx-3 text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
+                          {isBangla ? 'অথবা পাসওয়ার্ড দিয়ে' : 'OR WITH PASSWORD'}
                         </span>
                         <div className="flex-grow border-t border-slate-150"></div>
                       </div>
 
-                      {/* Email Password Form */}
-                      <form onSubmit={isRegisterMode ? handleEmailRegister : handleEmailLogin} className="space-y-3">
-                        <div className="flex border-b border-slate-100 pb-1.5 mb-2 gap-4">
+                      {/* Primary Option: Email Password Form */}
+                      <div className="p-4 bg-slate-50 border border-slate-150 rounded-2xl space-y-3 shadow-3xs">
+                        <div className="flex border-b border-slate-200 pb-1.5 mb-2 gap-4">
                           <button
                             type="button"
                             onClick={() => setIsRegisterMode(false)}
@@ -4058,7 +3015,7 @@ export default function App() {
                                 : 'text-slate-400 hover:text-slate-600 border-transparent'
                             }`}
                           >
-                            {isBangla ? 'লগইন (Login)' : 'Login'}
+                            {isBangla ? '১. লগইন (Login)' : '1. Login'}
                           </button>
                           <button
                             type="button"
@@ -4069,60 +3026,63 @@ export default function App() {
                                 : 'text-slate-400 hover:text-slate-600 border-transparent'
                             }`}
                           >
-                            {isBangla ? 'নিবন্ধন (Register)' : 'Register'}
+                            {isBangla ? '২. নতুন অ্যাকাউন্ট (Register)' : '2. Create Account'}
                           </button>
                         </div>
 
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                            {isBangla ? 'ইমেইল আইডি' : 'Email ID'}
-                          </label>
-                          <input
-                            type="email"
-                            required
-                            placeholder="your-email@example.com"
-                            value={userEmail}
-                            onChange={(e) => {
-                              setUserEmail(e.target.value);
-                              localStorage.setItem('hisab_khata_sync_email', e.target.value);
-                            }}
-                            className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold font-sans bg-slate-50/30"
-                          />
-                        </div>
+                        {/* Email Password Form */}
+                        <form onSubmit={isRegisterMode ? handleEmailRegister : handleEmailLogin} className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 mb-1">
+                              {isBangla ? 'ইমেইল আইডি' : 'Email ID'}
+                            </label>
+                            <input
+                              type="email"
+                              required
+                              placeholder="your-email@example.com"
+                              value={userEmail}
+                              onChange={(e) => {
+                                setUserEmail(e.target.value);
+                                localStorage.setItem('hisab_khata_sync_email', e.target.value);
+                              }}
+                              className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold font-sans bg-white"
+                            />
+                          </div>
 
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                            {isBangla ? 'পাসওয়ার্ড (কমপক্ষে ৬ ডিজিট)' : 'Password (Min 6 digits)'}
-                          </label>
-                          <input
-                            type="password"
-                            required
-                            placeholder="••••••"
-                            value={syncPassword}
-                            onChange={(e) => setSyncPassword(e.target.value)}
-                            className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold font-sans bg-slate-50/30"
-                          />
-                        </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 mb-1">
+                              {isBangla ? 'পাসওয়ার্ড (কমপক্ষে ৬ ডিজিট)' : 'Password (Min 6 digits)'}
+                            </label>
+                            <input
+                              type="password"
+                              required
+                              placeholder="••••••"
+                              value={syncPassword}
+                              onChange={(e) => setSyncPassword(e.target.value)}
+                              className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold font-sans bg-white"
+                            />
+                          </div>
 
-                        <button
-                          type="submit"
-                          disabled={isSyncing}
-                          className="w-full py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-600 text-white rounded-xl text-xs font-bold transition-all shadow-3xs cursor-pointer"
-                        >
-                          {isSyncing ? (
-                            <span className="flex items-center justify-center gap-1">
-                              <span className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                              <span>{isBangla ? 'লোড হচ্ছে...' : 'Loading...'}</span>
-                            </span>
-                          ) : (
-                            <span>
-                              {isRegisterMode 
-                                ? (isBangla ? 'নিবন্ধন ও সিঙ্ক চালু করুন' : 'Register & Enable Sync') 
-                                : (isBangla ? 'লগইন ও সিঙ্ক চালু করুন' : 'Login & Enable Sync')}
-                            </span>
-                          )}
-                        </button>
-                      </form>
+                          <button
+                            type="submit"
+                            disabled={isSyncing}
+                            className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-400 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                          >
+                            {isSyncing ? (
+                              <span className="flex items-center justify-center gap-1">
+                                <span className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                <span>{isBangla ? 'লোড হচ্ছে...' : 'Loading...'}</span>
+                              </span>
+                            ) : (
+                              <span>
+                                {isRegisterMode 
+                                  ? (isBangla ? 'নিবন্ধন ও সিঙ্ক চালু করুন' : 'Register & Enable Sync') 
+                                  : (isBangla ? 'লগইন ও সিঙ্ক চালু করুন' : 'Login & Enable Sync')}
+                              </span>
+                            )}
+                          </button>
+                        </form>
+                      </div>
                     </div>
                   )}
                 </div>

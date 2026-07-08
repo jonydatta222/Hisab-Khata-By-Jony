@@ -161,52 +161,9 @@ export async function downloadLedgerFromCloud(email: string): Promise<UserLedger
 }
 
 /**
- * Sign in with Google Popup
+ * Log out from Firebase Auth
  */
-export async function signInWithGoogle(): Promise<string> {
-  const provider = new GoogleAuthProvider();
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const email = result.user.email;
-    if (!email) {
-      throw new Error('No email found in Google account.');
-    }
-    localStorage.setItem('hisab_khata_sync_email', email);
-    return email;
-  } catch (error) {
-    console.error('Google Sign-In Error:', error);
-    throw error;
-  }
-}
-
-/**
- * Sign in with Google Popup specifically requesting Google Drive permissions
- */
-export async function signInWithGoogleForDrive(): Promise<{ email: string; accessToken: string }> {
-  const provider = new GoogleAuthProvider();
-  provider.addScope('https://www.googleapis.com/auth/drive.file');
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    const email = result.user.email;
-    const accessToken = credential?.accessToken;
-    if (!email) {
-      throw new Error('No email found in Google account.');
-    }
-    if (!accessToken) {
-      throw new Error('Failed to get access token for Google Drive.');
-    }
-    return { email, accessToken };
-  } catch (error) {
-    console.error('Google Drive Sign-In Error:', error);
-    throw error;
-  }
-}
-
-/**
- * Log out from Google Auth
- */
-export async function logOutFromGoogle(): Promise<void> {
+export async function logOutFromFirebase(): Promise<void> {
   try {
     await signOut(auth);
   } catch (error) {
@@ -252,8 +209,31 @@ export async function registerWithEmailAndPassword(email: string, pass: string):
 }
 
 /**
- * Ensures the user is authenticated in the background under the given email
- * using a deterministic password. If the user does not exist, registers them.
+ * Sign in with Google (Secure OAuth Popup)
+ */
+export async function loginWithGoogle(): Promise<string> {
+  try {
+    const provider = new GoogleAuthProvider();
+    // Enable select_account prompt so they can switch accounts easily
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
+    const result = await signInWithPopup(auth, provider);
+    const resultEmail = result.user.email;
+    if (!resultEmail) {
+      throw new Error('No email found in Google account.');
+    }
+    localStorage.setItem('hisab_khata_sync_email', resultEmail);
+    return resultEmail;
+  } catch (error) {
+    console.error('Google Sign-In Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Ensures the user is authenticated securely.
+ * Insecure background login using deterministic passwords has been deprecated for security.
  */
 export async function ensureAuthForEmail(email: string): Promise<void> {
   if (!email || !email.trim()) {
@@ -266,26 +246,6 @@ export async function ensureAuthForEmail(email: string): Promise<void> {
     return;
   }
 
-  const deterministicPassword = `hk_sync_2026_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '')}_secure`;
-
-  try {
-    await signInWithEmailAndPassword(auth, cleanEmail, deterministicPassword);
-  } catch (error: any) {
-    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
-      try {
-        await createUserWithEmailAndPassword(auth, cleanEmail, deterministicPassword);
-      } catch (regError: any) {
-        // If registration fails because user already exists (e.g. invalid-credential was thrown for existing custom password user)
-        if (regError.code === 'auth/email-already-in-use' || regError.code === 'auth/credential-already-in-use') {
-          console.warn('Custom password exists for this email. Background login failed.');
-          throw new Error('CUSTOM_PASSWORD_REQUIRED');
-        }
-        console.error('Background registration failed:', regError);
-        throw regError;
-      }
-    } else {
-      console.error('Background login failed:', error);
-      throw error;
-    }
-  }
+  // Otherwise, require explicit secure sign-in (Google or Custom Password)
+  throw new Error('SECURE_AUTH_REQUIRED');
 }
