@@ -250,3 +250,42 @@ export async function registerWithEmailAndPassword(email: string, pass: string):
     throw error;
   }
 }
+
+/**
+ * Ensures the user is authenticated in the background under the given email
+ * using a deterministic password. If the user does not exist, registers them.
+ */
+export async function ensureAuthForEmail(email: string): Promise<void> {
+  if (!email || !email.trim()) {
+    throw new Error('Email is required for authentication');
+  }
+  const cleanEmail = email.trim().toLowerCase();
+  
+  // If already authenticated as this email, do nothing
+  if (auth.currentUser && auth.currentUser.email && auth.currentUser.email.toLowerCase() === cleanEmail) {
+    return;
+  }
+
+  const deterministicPassword = `hk_sync_2026_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '')}_secure`;
+
+  try {
+    await signInWithEmailAndPassword(auth, cleanEmail, deterministicPassword);
+  } catch (error: any) {
+    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
+      try {
+        await createUserWithEmailAndPassword(auth, cleanEmail, deterministicPassword);
+      } catch (regError: any) {
+        // If registration fails because user already exists (e.g. invalid-credential was thrown for existing custom password user)
+        if (regError.code === 'auth/email-already-in-use' || regError.code === 'auth/credential-already-in-use') {
+          console.warn('Custom password exists for this email. Background login failed.');
+          throw new Error('CUSTOM_PASSWORD_REQUIRED');
+        }
+        console.error('Background registration failed:', regError);
+        throw regError;
+      }
+    } else {
+      console.error('Background login failed:', error);
+      throw error;
+    }
+  }
+}

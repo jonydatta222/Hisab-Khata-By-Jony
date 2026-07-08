@@ -161,3 +161,33 @@ export async function downloadBackupFile(
     throw error;
   }
 }
+
+/**
+ * Delete a backup file from Google Drive
+ */
+export async function deleteBackupFile(
+  accessToken: string,
+  fileId: string
+): Promise<void> {
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (res.status === 401) {
+      throw new Error('UNAUTHORIZED');
+    }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('Google Drive delete failed:', errText);
+      throw new Error('Delete failed');
+    }
+  } catch (error) {
+    console.error('deleteBackupFile error:', error);
+    throw error;
+  }
+}

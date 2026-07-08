@@ -50,7 +50,8 @@ import {
   signInWithGoogleForDrive,
   logOutFromGoogle,
   loginWithEmailAndPassword,
-  registerWithEmailAndPassword
+  registerWithEmailAndPassword,
+  ensureAuthForEmail
 } from './firebase';
 
 import { 
@@ -58,6 +59,7 @@ import {
   createBackupFile, 
   updateBackupFile, 
   downloadBackupFile, 
+  deleteBackupFile,
   DriveBackupData 
 } from './utils/driveBackup';
 
@@ -567,14 +569,26 @@ export default function App() {
 
   // --- Listen for Firebase Auth changes ---
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
       setCurrentUser(user);
       if (user && user.email) {
         setUserEmail(user.email);
         localStorage.setItem('hisab_khata_sync_email', user.email);
       } else {
-        setIsSyncActive(false);
-        localStorage.setItem('hisab_khata_sync', 'false');
+        const localSync = localStorage.getItem('hisab_khata_sync') === 'true';
+        const savedEmail = localStorage.getItem('hisab_khata_sync_email');
+        if (localSync && savedEmail && savedEmail.trim()) {
+          try {
+            await ensureAuthForEmail(savedEmail);
+          } catch (err: any) {
+            console.error('Failed to auto-authenticate in background:', err);
+            setIsSyncActive(false);
+            localStorage.setItem('hisab_khata_sync', 'false');
+          }
+        } else {
+          setIsSyncActive(false);
+          localStorage.setItem('hisab_khata_sync', 'false');
+        }
       }
     });
     return () => unsubscribe();
@@ -775,6 +789,21 @@ export default function App() {
       setIsSyncing(true);
       setSyncMessage(isBangla ? 'ফায়ারবেস ক্লাউডে সংযোগ করা হচ্ছে...' : 'Connecting to Firebase Cloud...');
       try {
+        // Authenticate in background to satisfy Firestore rules requirement
+        try {
+          await ensureAuthForEmail(emailToUse);
+        } catch (authErr: any) {
+          if (authErr.message === 'CUSTOM_PASSWORD_REQUIRED') {
+            showToast(
+              isBangla 
+                ? 'এই ইমেইলটির জন্য পাসওয়ার্ড প্রয়োজন! অনুগ্রহ করে পাসওয়ার্ড দিয়ে লগইন করুন।' 
+                : 'A custom password is required for this email! Please log in with your password.'
+            );
+            return;
+          }
+          throw authErr;
+        }
+
         const cloudData = await downloadLedgerFromCloud(emailToUse);
         setIsSyncActive(true);
         localStorage.setItem('hisab_khata_sync', 'true');
@@ -1121,6 +1150,60 @@ export default function App() {
         showToast(isBangla ? 'গুগল ড্রাইভ সেশন শেষ হয়েছে, দয়া করে পুনরায় কানেক্ট করুন।' : 'Google Drive session expired, please reconnect.');
       } else {
         showToast(isBangla ? 'রিস্টোর করতে সমস্যা হয়েছে!' : 'Failed to restore from Google Drive!');
+      }
+    } finally {
+      setIsDriveSyncing(false);
+      setDriveSyncMessage('');
+    }
+  };
+
+  const handleResetDriveBackup = async () => {
+    if (!driveAccessToken) {
+      showToast(isBangla ? 'গুগল ড্রাইভ সংযুক্ত নয়! দয়া করে ড্রাইভ কানেক্ট করুন।' : 'Google Drive not connected! Please connect Drive.');
+      return;
+    }
+
+    const doubleCheck = window.confirm(
+      isBangla 
+        ? '⚠️ আপনি কি আগের সকল গুগল ড্রাইভ ব্যাকআপ ডিলিট করে নতুন করে ব্যাকআপ নিতে চান? এটি ড্রাইভের পূর্বের ব্যাকআপ ফাইল চিরতরে মুছে দেবে এবং বর্তমান ডাটা দিয়ে নতুন ব্যাকআপ সেট করবে।'
+        : '⚠️ Are you sure you want to delete all previous Google Drive backups and start a fresh backup? This will permanently delete the old backup file and create a new one with your current data.'
+    );
+    if (!doubleCheck) return;
+
+    setIsDriveSyncing(true);
+    setDriveSyncMessage(isBangla ? 'আগের ব্যাকআপ ফাইল খোঁজা হচ্ছে...' : 'Searching for previous backup file...');
+
+    try {
+      const fileId = await findBackupFile(driveAccessToken);
+      if (fileId) {
+        setDriveSyncMessage(isBangla ? 'পূর্বের ব্যাকআপ ডিলিট করা হচ্ছে...' : 'Deleting previous backup file...');
+        await deleteBackupFile(driveAccessToken, fileId);
+        showToast(isBangla ? 'আগের ব্যাকআপ ফাইলটি ড্রাইভ থেকে ডিলিট করা হয়েছে।' : 'Previous backup file deleted from Drive.');
+      } else {
+        showToast(isBangla ? 'ড্রাইভে কোনো আগের ব্যাকআপ ফাইল পাওয়া যায়নি। সরাসরি নতুন ব্যাকআপ তৈরি করা হচ্ছে...' : 'No previous backup file found. Creating a brand new backup file directly...');
+      }
+
+      setDriveSyncMessage(isBangla ? 'নতুন করে ব্যাকআপ তৈরি করা হচ্ছে...' : 'Creating brand new backup file...');
+      const backupData: DriveBackupData = {
+        transactions: transactions,
+        expenses: expenses,
+        shopName: shopName,
+        updatedAt: Date.now(),
+        exportDate: new Date().toISOString(),
+        creator: driveEmail,
+        outOfStockItems: outOfStockItems,
+        productRates: productRates,
+      };
+
+      await createBackupFile(driveAccessToken, backupData);
+      showToast(isBangla ? 'পূর্বের ব্যাকআপ সফলভাবে ডিলিট করে একদম নতুন ব্যাকআপ সংরক্ষণ করা হয়েছে!' : 'Successfully deleted previous backup and added a completely brand new backup!');
+    } catch (error: any) {
+      console.error('Google Drive reset backup failed:', error);
+      if (error.message === 'UNAUTHORIZED') {
+        updateDriveAccessToken(null);
+        showToast(isBangla ? 'গুগল ড্রাইভ সেশন শেষ হয়েছে, দয়া করে পুনরায় কানেক্ট করুন।' : 'Google Drive session expired, please reconnect.');
+      } else {
+        showToast(isBangla ? 'ব্যাকআপ ডিলিট ও রিসেট করতে সমস্যা হয়েছে!' : 'Failed to delete and reset backup!');
       }
     } finally {
       setIsDriveSyncing(false);
@@ -3340,6 +3423,38 @@ export default function App() {
                     {isSyncActive ? (isBangla ? 'বন্ধ করুন' : 'Disable') : (isBangla ? 'চালু করুন' : 'Enable')}
                   </button>
                 </div>
+
+                {isSyncActive && (
+                  <div className="grid grid-cols-2 gap-2.5 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => triggerCloudSync(transactions, expenses, shopName, userEmail, outOfStockItems, productRates)}
+                      disabled={isSyncing}
+                      className="py-2 px-2 bg-teal-50/50 hover:bg-teal-50 border border-teal-100 rounded-xl text-xs font-bold text-teal-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-all disabled:opacity-50"
+                    >
+                      <FileUp className="h-4 w-4 text-teal-600" />
+                      <span>{isBangla ? 'এখনই সিঙ্ক করুন' : 'Sync Now'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const confirmOver = window.confirm(
+                          isBangla 
+                            ? '⚠️ আপনি কি পূর্বের সকল ক্লাউড ব্যাকআপ মুছে বর্তমান ডিভাইসের ডাটা দিয়ে একদম নতুন করে ব্যাকআপ দিতে চান?'
+                            : '⚠️ Are you sure you want to overwrite previous cloud backup with current device data?'
+                        );
+                        if (!confirmOver) return;
+                        await triggerCloudSync(transactions, expenses, shopName, userEmail, outOfStockItems, productRates);
+                        showToast(isBangla ? 'পূর্বের ক্লাউড ব্যাকআপ সফলভাবে পরিবর্তন করা হয়েছে!' : 'Successfully reset and overwrote cloud backup!');
+                      }}
+                      disabled={isSyncing}
+                      className="py-2 px-2 bg-rose-50/50 hover:bg-rose-50 border border-rose-100 rounded-xl text-xs font-bold text-rose-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-all disabled:opacity-50"
+                    >
+                      <RotateCcw className="h-4 w-4 text-rose-600" />
+                      <span>{isBangla ? 'ব্যাকআপ রিসেট করুন' : 'Reset Backup'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -3595,6 +3710,16 @@ export default function App() {
                       >
                         <FileDown className="h-4 w-4 text-emerald-600" />
                         <span>{isBangla ? 'ড্রাইভ রিস্টোর' : 'Restore from Drive'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleResetDriveBackup}
+                        disabled={isDriveSyncing || !driveAccessToken}
+                        className="col-span-2 py-2.5 px-2.5 border border-rose-100 bg-rose-50/60 hover:bg-rose-50 rounded-xl text-xs font-bold text-rose-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4 text-rose-600" />
+                        <span>{isBangla ? 'আগের ব্যাকআপ মুছে নতুন ব্যাকআপ নিন' : 'Delete previous & start fresh backup'}</span>
                       </button>
                     </div>
                   </div>
