@@ -652,9 +652,23 @@ export default function App() {
 
   const handleToggleSync = () => {
     setIsSyncModalOpen(true);
+    if (isCapacitor) {
+      setShowAuthHelp(true);
+      setIsRegisterMode(true);
+    }
   };
 
   const handleGoogleLogin = async () => {
+    if (isCapacitor) {
+      setShowAuthHelp(true);
+      setIsRegisterMode(true);
+      alert(
+        isBangla
+          ? '⚠️ গুগল সিকিউরিটি পলিসি অনুযায়ী মোবাইল অ্যাপের (APK) ভেতর সরাসরি গুগল সাইন-ইন বাটন সাপোর্ট করে না।\n\nএটি এড়াতে অনুগ্রহ করে নিচের "ইমেইল ও পাসওয়ার্ড" ঘরে আপনার ইমেইল এবং যেকোনো পাসওয়ার্ড দিয়ে "নিবন্ধন করুন" অথবা আপনার তৈরি অ্যাকাউন্ট দিয়ে "লগইন করুন"। এটি সম্পূর্ণ সুরক্ষিত এবং ১০০% কার্যকরী!'
+          : '⚠️ Google security policies block Google Sign-In inside mobile WebViews (APKs).\n\nPlease use the "Email & Password" form below to register a new account or log in with your existing account. It is fully secure and 100% functional!'
+      );
+      return;
+    }
     setIsSyncing(true);
     setSyncMessage(isBangla ? 'গুগল অ্যাকাউন্ট কানেক্ট করা হচ্ছে...' : 'Connecting Google Account...');
     try {
@@ -891,6 +905,14 @@ export default function App() {
   };
 
   const handleDriveConnect = async () => {
+    if (isCapacitor) {
+      alert(
+        isBangla
+          ? '⚠️ গুগল ড্রাইভ ব্যাকআপ ও রিস্টোর করার জন্য গুগল সাইন-ইন প্রয়োজন, যা গুগল পলিসি অনুযায়ী মোবাইল অ্যাপের (APK) ভেতর সরাসরি ব্যবহার করা যায় না।\n\nসুরক্ষিত ক্লাউড ব্যাকআপের জন্য দয়া করে আমাদের অনলাইন "ফায়ারবেস ক্লাউড সিঙ্ক" অপশনটি ব্যবহার করুন এবং পাসওয়ার্ড দিয়ে অ্যাকাউন্ট খুলে সিঙ্ক করুন।'
+          : '⚠️ Google Drive backup requires Google Sign-In, which Google blocks inside mobile apps (APKs) due to security policies.\n\nPlease use the Firebase Cloud Sync option with Email & Password, which is fully supported and secure!'
+      );
+      return;
+    }
     setIsDriveSyncing(true);
     setDriveSyncMessage(isBangla ? 'গুগল ড্রাইভ কানেক্ট করা হচ্ছে...' : 'Connecting Google Drive...');
     try {
