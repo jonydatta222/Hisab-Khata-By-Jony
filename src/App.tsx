@@ -233,6 +233,17 @@ export default function App() {
   const [activeSliceIndex, setActiveSliceIndex] = useState<number | null>(null);
   const [isOthersModalOpen, setIsOthersModalOpen] = useState(false);
 
+  const [authServerType, setAuthServerType] = useState<'dev' | 'pre'>(() => {
+    return (localStorage.getItem('hisab_khata_auth_server_type') as 'dev' | 'pre') || 'dev';
+  });
+
+  const getAuthRedirectUrl = (mode: 'app-auth' | 'app-drive') => {
+    const baseUrl = authServerType === 'dev'
+      ? 'https://ais-dev-ubhqkvzgdwmiuzrvrwvhgc-273317504244.asia-southeast1.run.app'
+      : 'https://ais-pre-ubhqkvzgdwmiuzrvrwvhgc-273317504244.asia-southeast1.run.app';
+    return `${baseUrl}/#mode=${mode}`;
+  };
+
   // Collapse history transaction list when date or navigation tab changes
   useEffect(() => {
     setShowAllHistoryTxs(false);
@@ -455,11 +466,27 @@ export default function App() {
 
   // --- Hosted Web Auth Mode detection and execution ---
   useEffect(() => {
+    // 1. Check URL search/query params
     const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode');
-    if (mode === 'app-auth') {
+    let mode = params.get('mode');
+
+    // 2. Fallback to check hash parameters (extremely reliable for static hosting)
+    if (!mode && window.location.hash) {
+      const hashStr = window.location.hash.replace(/^#\/?/, '');
+      if (hashStr.includes('=')) {
+        const hashParams = new URLSearchParams(hashStr);
+        mode = hashParams.get('mode');
+      } else if (hashStr.includes('mode')) {
+        const match = hashStr.match(/mode=([^&]+)/);
+        if (match) mode = match[1];
+      } else {
+        mode = hashStr;
+      }
+    }
+
+    if (mode === 'app-auth' || mode === 'auth') {
       setAppAuthMode('auth');
-    } else if (mode === 'app-drive') {
+    } else if (mode === 'app-drive' || mode === 'drive') {
       setAppAuthMode('drive');
     }
   }, []);
@@ -854,7 +881,7 @@ export default function App() {
         // Fallback automatically to Chrome Custom Tabs (very reliable)
         setSyncMessage(isBangla ? 'গুগল ব্রাউজার ওপেন করা হচ্ছে...' : 'Opening Google browser...');
         try {
-          const url = 'https://ais-pre-ubhqkvzgdwmiuzrvrwvhgc-273317504244.asia-southeast1.run.app/?mode=app-auth';
+          const url = getAuthRedirectUrl('app-auth');
           await Browser.open({ url });
         } catch (e: any) {
           console.error('Error launching Custom Tab:', e);
@@ -1128,7 +1155,7 @@ export default function App() {
         // Fallback automatically to Chrome Custom Tabs
         setDriveSyncMessage(isBangla ? 'গুগল ব্রাউজার ওপেন করা হচ্ছে...' : 'Opening Google browser...');
         try {
-          const url = 'https://ais-pre-ubhqkvzgdwmiuzrvrwvhgc-273317504244.asia-southeast1.run.app/?mode=app-drive';
+          const url = getAuthRedirectUrl('app-drive');
           await Browser.open({ url });
         } catch (e: any) {
           console.error('Error launching Custom Tab for Drive:', e);
@@ -3329,25 +3356,69 @@ export default function App() {
                 {/* Connection status & Google sign-in */}
                 <div className="space-y-2.5">
                   {isCapacitor && !driveEmail && (
-                    <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-2 shadow-xs">
+                    <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-3 shadow-xs">
                       <div className="flex items-center gap-1.5 font-bold text-amber-900">
                         <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
                         <span>
-                          {isBangla ? 'মোবাইল অ্যাপ সিকিউরিটি নোটিশ' : 'Mobile App Security Notice'}
+                          {isBangla ? 'মোবাইল অ্যাপ গুগল ড্রাইভ সংযোগ' : 'Mobile App Google Drive Connection'}
                         </span>
                       </div>
                       <p className="text-[11px] leading-relaxed text-amber-900 font-medium">
                         {isBangla ? (
                           <>
-                            গুগল পলিসির (disallowed_useragent) কারণে ইনস্টল করা মোবাইল APK-এর ভেতর সরাসরি গুগল ড্রাইভ সংযোগ পপআপটি ব্ল্যাঙ্ক হয়ে থাকতে পারে।
-                            <br /><br />
-                            <span className="font-bold text-teal-800">সমাধান:</span> ড্রাইভ ব্যাকআপের পরিবর্তে উপরে উল্লেখিত <span className="font-extrabold text-slate-900">"ক্লাউড সিঙ্ক অ্যাকাউন্ট"</span> ব্যবহার করুন! সেখানে শুধু আপনার ইমেইল এড্রেস লিখে "চালু করুন" বাটনে ক্লিক করলেই সম্পূর্ণ ফ্রিতে ও কোনো ঝামেলা ছাড়াই আপনার সব ডাটা ক্লাউডে সুরক্ষিত থাকবে।
+                            মোবাইল অ্যাপের ভেতরে গুগল ড্রাইভ সংযোগ করার জন্য নিচের সঠিক সার্ভার কানেকশন টাইপ সিলেক্ট করুন:
                           </>
                         ) : (
                           <>
-                            Due to Google security rules (disallowed_useragent), Google Drive auth popups will remain blank inside installed mobile APKs.
-                            <br /><br />
-                            <span className="font-bold text-teal-800">Solution:</span> Instead of Drive Backup, please use the <span className="font-extrabold text-slate-900">"Cloud Sync Account"</span> option above! Simply type your email and enable it to back up all your data smoothly and securely without any Google login popups.
+                            To connect Google Drive inside the mobile app, select the correct server connection type below:
+                          </>
+                        )}
+                      </p>
+
+                      <div className="p-2 bg-white/60 rounded-lg space-y-1.5">
+                        <span className="block text-[9px] font-black text-slate-500 uppercase tracking-wider">
+                          {isBangla ? 'কানেকশন সার্ভার' : 'Connection Server'}
+                        </span>
+                        <div className="grid grid-cols-2 p-0.5 bg-slate-200/60 rounded-lg">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthServerType('dev');
+                              localStorage.setItem('hisab_khata_auth_server_type', 'dev');
+                            }}
+                            className={`py-1 text-[10px] font-black rounded transition-all cursor-pointer ${
+                              authServerType === 'dev'
+                                ? 'bg-white text-teal-700 shadow-xs'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {isBangla ? 'ডেভ (Dev)' : 'Dev'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthServerType('pre');
+                              localStorage.setItem('hisab_khata_auth_server_type', 'pre');
+                            }}
+                            className={`py-1 text-[10px] font-black rounded transition-all cursor-pointer ${
+                              authServerType === 'pre'
+                                ? 'bg-white text-indigo-700 shadow-xs'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {isBangla ? 'লাইভ (Live)' : 'Live'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] leading-relaxed text-amber-900 font-medium">
+                        {isBangla ? (
+                          <>
+                            <span className="font-bold text-teal-800">বিকল্প সহজ সমাধান:</span> ড্রাইভ ব্যাকআপের পরিবর্তে উপরে উল্লেখিত <span className="font-extrabold text-slate-900">"ক্লাউড সিঙ্ক অ্যাকাউন্ট"</span> ব্যবহার করুন! সেখানে শুধু আপনার ইমেইল এড্রেস লিখে "চালু করুন" বাটনে ক্লিক করলেই সম্পূর্ণ ফ্রিতে ও কোনো ঝামেলা ছাড়াই আপনার সব ডাটা ক্লাউডে সুরক্ষিত থাকবে।
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-bold text-teal-800">Alternative:</span> Instead of Drive Backup, please use the <span className="font-extrabold text-slate-900">"Cloud Sync Account"</span> option above! Simply type your email and enable it to back up all your data smoothly.
                           </>
                         )}
                       </p>
@@ -3623,6 +3694,50 @@ export default function App() {
                     ? 'আপনার হিসাব খাতার সকল ডাটা ফায়ারবেস ক্লাউডে রিয়েল-টাইমে সিঙ্ক করুন। এতে আপনার ফোন হারিয়ে গেলেও ডাটা সুরক্ষিত থাকবে।' 
                     : 'Sync all your ledger data in real-time to Firebase Cloud. Your data will remain safe and secure even if you switch or lose your device.'}
                 </p>
+
+                {/* Server Selection Segment */}
+                {isCapacitor && (
+                  <div className="p-3 bg-slate-50 border border-slate-150 rounded-xl space-y-2" id="auth-server-selector">
+                    <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                      {isBangla ? 'কানেকশন সার্ভার (Server Connection)' : 'Connection Server'}
+                    </span>
+                    <div className="grid grid-cols-2 p-0.5 bg-slate-200/60 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthServerType('dev');
+                          localStorage.setItem('hisab_khata_auth_server_type', 'dev');
+                        }}
+                        className={`py-1.5 text-[11px] font-black rounded-md transition-all cursor-pointer ${
+                          authServerType === 'dev'
+                            ? 'bg-white text-teal-700 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        {isBangla ? 'ডেভ সার্ভার (Dev)' : 'Dev Server'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthServerType('pre');
+                          localStorage.setItem('hisab_khata_auth_server_type', 'pre');
+                        }}
+                        className={`py-1.5 text-[11px] font-black rounded-md transition-all cursor-pointer ${
+                          authServerType === 'pre'
+                            ? 'bg-white text-indigo-700 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        {isBangla ? 'লাইভ সার্ভার (Live)' : 'Live Server'}
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-slate-400 leading-normal font-medium">
+                      {isBangla 
+                        ? '💡 অ্যাপ ডেভেলপমেন্ট বা টেস্টিংয়ের সময় "ডেভ" সিলেক্ট করুন। ফাইনাল শেয়ার বা রিলিজের পর "লাইভ" সিলেক্ট করুন।' 
+                        : '💡 Select "Dev" during testing/development. Select "Live" for production builds.'}
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   {currentUser ? (
