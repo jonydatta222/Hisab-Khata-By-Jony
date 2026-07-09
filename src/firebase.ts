@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { initializeFirestore, doc, setDoc, getDoc, getDocFromCache, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
 import { Transaction, Expense, OutOfStockItem, ProductRateItem } from './types';
 
@@ -177,7 +177,8 @@ export async function logOutFromFirebase(): Promise<void> {
  */
 export async function loginWithEmailAndPassword(email: string, pass: string): Promise<string> {
   try {
-    const result = await signInWithEmailAndPassword(auth, email, pass);
+    const cleanEmail = email.trim().toLowerCase();
+    const result = await signInWithEmailAndPassword(auth, cleanEmail, pass);
     const resultEmail = result.user.email;
     if (!resultEmail) {
       throw new Error('No email found.');
@@ -195,7 +196,8 @@ export async function loginWithEmailAndPassword(email: string, pass: string): Pr
  */
 export async function registerWithEmailAndPassword(email: string, pass: string): Promise<string> {
   try {
-    const result = await createUserWithEmailAndPassword(auth, email, pass);
+    const cleanEmail = email.trim().toLowerCase();
+    const result = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
     const resultEmail = result.user.email;
     if (!resultEmail) {
       throw new Error('No email found.');
@@ -204,6 +206,19 @@ export async function registerWithEmailAndPassword(email: string, pass: string):
     return resultEmail;
   } catch (error) {
     console.error('Email Registration Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Send Password Reset Email
+ */
+export async function resetPasswordForEmail(email: string): Promise<void> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    await sendPasswordResetEmail(auth, cleanEmail);
+  } catch (error) {
+    console.error('Password Reset Error:', error);
     throw error;
   }
 }

@@ -29,7 +29,10 @@ import {
   Home,
   Settings as SettingsIcon,
   Database,
-  User
+  User,
+  Edit2,
+  Facebook,
+  Linkedin
 } from 'lucide-react';
 
 import { Transaction, Expense, CustomerDue, DailySummary, OutOfStockItem, ProductRateItem } from './types';
@@ -47,10 +50,11 @@ import {
   downloadLedgerFromCloud, 
   auth, 
   logOutFromFirebase,
+  ensureAuthForEmail,
+  loginWithGoogle,
   loginWithEmailAndPassword,
   registerWithEmailAndPassword,
-  ensureAuthForEmail,
-  loginWithGoogle
+  resetPasswordForEmail
 } from './firebase';
 
 // Native Capacitor Chrome Custom Tabs & Deep Linking callback imports
@@ -169,8 +173,6 @@ export default function App() {
   const [userEmail, setUserEmail] = useState(() => {
     return localStorage.getItem('hisab_khata_sync_email') || '';
   });
-  const [syncPassword, setSyncPassword] = useState('');
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [shopName, setShopName] = useState(() => {
     return localStorage.getItem('hisab_khata_shop_name') || '';
   });
@@ -186,6 +188,102 @@ export default function App() {
   const [authServerType, setAuthServerType] = useState<'dev' | 'pre'>(() => {
     return (localStorage.getItem('hisab_khata_auth_server_type') as 'dev' | 'pre') || 'dev';
   });
+
+  const [authTab, setAuthTab] = useState<'google' | 'email'>('google');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setAuthError(isBangla ? 'ইমেইল এবং পাসওয়ার্ড দিন।' : 'Please enter email and password.');
+      return;
+    }
+    if (authPassword.length < 6) {
+      setAuthError(isBangla ? 'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।' : 'Password must be at least 6 characters.');
+      return;
+    }
+
+    setIsSyncing(true);
+    setAuthError('');
+    setSyncMessage(isRegisterMode 
+      ? (isBangla ? 'অ্যাকাউন্ট তৈরি করা হচ্ছে...' : 'Creating account...') 
+      : (isBangla ? 'লগইন করা হচ্ছে...' : 'Logging in...')
+    );
+
+    try {
+      let email = '';
+      if (isRegisterMode) {
+        email = await registerWithEmailAndPassword(authEmail, authPassword);
+        showToast(isBangla ? 'সফলভাবে নতুন অ্যাকাউন্ট তৈরি হয়েছে!' : 'Successfully created new account!');
+      } else {
+        email = await loginWithEmailAndPassword(authEmail, authPassword);
+        showToast(isBangla ? 'সফলভাবে লগইন সম্পন্ন হয়েছে!' : 'Logged in successfully!');
+      }
+      
+      // Clear password field for security
+      setAuthPassword('');
+      setIsSyncModalOpen(false);
+      
+      // Automatically toggle sync if not active
+      if (!isSyncActive) {
+        await toggleSyncState(email);
+      }
+    } catch (error: any) {
+      console.error('Email Auth Error:', error);
+      let errorMsg = error?.message || String(error);
+      if (errorMsg.includes('auth/invalid-credential') || errorMsg.includes('auth/wrong-password') || errorMsg.includes('auth/user-not-found')) {
+        setAuthError(isBangla ? 'ভুল ইমেইল অথবা পাসওয়ার্ড!' : 'Incorrect email or password!');
+      } else if (errorMsg.includes('auth/email-already-in-use')) {
+        setAuthError(isBangla ? 'এই ইমেইলটি ইতিমধ্যে ব্যবহৃত হয়েছে! অনুগ্রহ করে নতুন অ্যাকাউন্ট খুলুন এর পরিবর্তে সরাসরি "লগইন করুন" সিলেক্ট করুন।' : 'This email is already in use! Please choose Log In instead of Register.');
+      } else if (errorMsg.includes('auth/invalid-email')) {
+        setAuthError(isBangla ? 'অকার্যকর ইমেইল ফরম্যাট!' : 'Invalid email format!');
+      } else if (errorMsg.includes('auth/weak-password')) {
+        setAuthError(isBangla ? 'পাসওয়ার্ড অত্যন্ত দুর্বল! কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড দিন।' : 'Weak password! Use at least 6 characters.');
+      } else if (errorMsg.includes('auth/operation-not-allowed')) {
+        setAuthError(isBangla ? 'ইমেইল/পাসওয়ার্ড পদ্ধতি সক্রিয় করা হয়নি। দয়া করে আপনার Firebase Console-এ গিয়ে Authentication -> Sign-in method থেকে Email/Password সক্রিয় (Enable) করুন।' : 'Email/Password auth is disabled. Please enable it in Firebase Console under Authentication -> Sign-in method.');
+      } else {
+        setAuthError(isBangla ? `লগইন ব্যর্থ হয়েছে! (${errorMsg})` : `Auth failed! (${errorMsg})`);
+      }
+    } finally {
+      setIsSyncing(false);
+      setSyncMessage('');
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!authEmail.trim()) {
+      setAuthError(isBangla ? 'পাসওয়ার্ড রিসেট করতে প্রথমে আপনার ইমেইল এড্রেসটি দিন।' : 'Please enter your email address first to reset password.');
+      return;
+    }
+    setIsSyncing(true);
+    setAuthError('');
+    setSyncMessage(isBangla ? 'পাসওয়ার্ড রিসেট লিংক পাঠানো হচ্ছে...' : 'Sending password reset link...');
+    try {
+      await resetPasswordForEmail(authEmail);
+      showToast(isBangla 
+        ? 'পাসওয়ার্ড রিসেটের ইমেইল পাঠানো হয়েছে! আপনার ইনবক্স চেক করুন।' 
+        : 'Password reset email sent! Please check your inbox.'
+      );
+      setAuthError(isBangla 
+        ? 'পাসওয়ার্ড রিসেট লিংক সফলভাবে পাঠানো হয়েছে। আপনার ইমেইল ইনবক্স (বা স্প্যাম ফোল্ডার) চেক করুন।' 
+        : 'Password reset link sent successfully. Check your inbox or spam folder.'
+      );
+    } catch (error: any) {
+      console.error('Password Reset Error:', error);
+      let errorMsg = error?.message || String(error);
+      if (errorMsg.includes('auth/user-not-found') || errorMsg.includes('auth/invalid-email')) {
+        setAuthError(isBangla ? 'এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট খুঁজে পাওয়া যায়নি।' : 'No account found with this email.');
+      } else {
+        setAuthError(isBangla ? `রিসেট রিকোয়েস্ট ব্যর্থ হয়েছে! (${errorMsg})` : `Reset request failed! (${errorMsg})`);
+      }
+    } finally {
+      setIsSyncing(false);
+      setSyncMessage('');
+    }
+  };
 
   const getAuthRedirectUrl = (mode: 'app-auth') => {
     const baseUrl = authServerType === 'dev'
@@ -207,6 +305,19 @@ export default function App() {
   const [deletingTxId, setDeletingTxId] = useState<string | null>(null);
   const [deletingOosId, setDeletingOosId] = useState<string | null>(null);
   const [deletingRateId, setDeletingRateId] = useState<string | null>(null);
+  const [editingOosId, setEditingOosId] = useState<string | null>(null);
+  const [editOosName, setEditOosName] = useState('');
+  const [editingRateId, setEditingRateId] = useState<string | null>(null);
+  const [editRateName, setEditRateName] = useState('');
+  const [editRatePrice, setEditRatePrice] = useState('');
+  const [activeInfoTab, setActiveInfoTab] = useState<'oos' | 'rates'>('oos');
+  const [settingsSubTab, setSettingsSubTab] = useState<'store' | 'sync' | 'about'>('store');
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Input references for auto-focusing and fluid mobile workflow
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -355,20 +466,10 @@ export default function App() {
         setUserEmail(user.email);
         localStorage.setItem('hisab_khata_sync_email', user.email);
       } else {
-        const localSync = localStorage.getItem('hisab_khata_sync') === 'true';
-        const savedEmail = localStorage.getItem('hisab_khata_sync_email');
-        if (localSync && savedEmail && savedEmail.trim()) {
-          try {
-            await ensureAuthForEmail(savedEmail);
-          } catch (err: any) {
-            console.error('Failed to auto-authenticate in background:', err);
-            setIsSyncActive(false);
-            localStorage.setItem('hisab_khata_sync', 'false');
-          }
-        } else {
-          setIsSyncActive(false);
-          localStorage.setItem('hisab_khata_sync', 'false');
-        }
+        // Since we now require secure Google/password login, we do not auto-authenticate in the background.
+        // We disable sync if the user is not authenticated.
+        setIsSyncActive(false);
+        localStorage.setItem('hisab_khata_sync', 'false');
       }
     });
     return () => unsubscribe();
@@ -570,18 +671,10 @@ export default function App() {
           if (authErr.message === 'SECURE_AUTH_REQUIRED') {
             showToast(
               isBangla 
-                ? 'অনুগ্রহ করে প্রথমে গুগল লগইন বা পাসওয়ার্ড দিয়ে লগইন সম্পন্ন করুন।' 
-                : 'Please complete secure Google login or password sign-in first.'
+                ? 'অনুগ্রহ করে প্রথমে গুগল লগইন সম্পন্ন করুন।' 
+                : 'Please complete secure Google login first.'
             );
             setIsSyncModalOpen(true);
-            return;
-          }
-          if (authErr.message === 'CUSTOM_PASSWORD_REQUIRED') {
-            showToast(
-              isBangla 
-                ? 'এই ইমেইলটির জন্য পাসওয়ার্ড প্রয়োজন! অনুগ্রহ করে পাসওয়ার্ড দিয়ে লগইন করুন।' 
-                : 'A custom password is required for this email! Please log in with your password.'
-            );
             return;
           }
           throw authErr;
@@ -658,7 +751,6 @@ export default function App() {
     setIsSyncModalOpen(true);
     if (isCapacitor) {
       setShowAuthHelp(true);
-      setIsRegisterMode(true);
     }
   };
 
@@ -705,85 +797,6 @@ export default function App() {
       setSyncMessage('');
     }
   };
-
-  const handleEmailLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userEmail || !userEmail.trim()) {
-      showToast(isBangla ? 'অনুগ্রহ করে ইমেইল আইডি দিন।' : 'Please provide an email ID.');
-      return;
-    }
-    if (!syncPassword || syncPassword.length < 6) {
-      showToast(isBangla ? 'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।' : 'Password must be at least 6 characters.');
-      return;
-    }
-
-    setIsSyncing(true);
-    setSyncMessage(isBangla ? 'লগইন করা হচ্ছে...' : 'Logging in...');
-    try {
-      const email = await loginWithEmailAndPassword(userEmail.trim().toLowerCase(), syncPassword);
-      showToast(isBangla ? `লগইন সফল হয়েছে: ${email}` : `Login successful: ${email}`);
-      setSyncPassword('');
-      // Automatically toggle sync if not active
-      if (!isSyncActive) {
-        await toggleSyncState(email);
-      }
-    } catch (error: any) {
-      console.error('Email Login Error:', error);
-      let errorMsg = isBangla ? 'লগইন ব্যর্থ হয়েছে! পাসওয়ার্ড চেক করুন।' : 'Login failed! Check password.';
-      if (error?.code === 'auth/user-not-found') {
-        errorMsg = isBangla ? 'এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি। প্রথমে নিবন্ধন করুন।' : 'No account found with this email. Please register first.';
-      } else if (error?.code === 'auth/wrong-password') {
-        errorMsg = isBangla ? 'ভুল পাসওয়ার্ড! দয়া করে সঠিক পাসওয়ার্ড দিন।' : 'Incorrect password! Please try again.';
-      } else if (error?.code === 'auth/invalid-credential') {
-        errorMsg = isBangla ? 'ভুল ইমেইল বা পাসওয়ার্ড!' : 'Invalid email or password!';
-      }
-      showToast(errorMsg);
-    } finally {
-      setIsSyncing(false);
-      setSyncMessage('');
-    }
-  };
-
-  const handleEmailRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userEmail || !userEmail.trim()) {
-      showToast(isBangla ? 'অনুগ্রহ করে ইমেইল আইডি দিন।' : 'Please provide an email ID.');
-      return;
-    }
-    if (!syncPassword || syncPassword.length < 6) {
-      showToast(isBangla ? 'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।' : 'Password must be at least 6 characters.');
-      return;
-    }
-
-    setIsSyncing(true);
-    setSyncMessage(isBangla ? 'নতুন অ্যাকাউন্ট তৈরি করা হচ্ছে...' : 'Creating new account...');
-    try {
-      const email = await registerWithEmailAndPassword(userEmail.trim().toLowerCase(), syncPassword);
-      showToast(isBangla ? `নিবন্ধন ও লগইন সফল হয়েছে: ${email}` : `Registration and login successful: ${email}`);
-      setSyncPassword('');
-      setIsRegisterMode(false);
-      // Automatically toggle sync if not active
-      if (!isSyncActive) {
-        await toggleSyncState(email);
-      }
-    } catch (error: any) {
-      console.error('Email Register Error:', error);
-      let errorMsg = isBangla ? 'নিবন্ধন ব্যর্থ হয়েছে!' : 'Registration failed!';
-      if (error?.code === 'auth/email-already-in-use') {
-        errorMsg = isBangla ? 'এই ইমেইলটি ইতিমধ্যে ব্যবহৃত হচ্ছে। লগইন করার চেষ্টা করুন।' : 'This email is already in use. Try logging in.';
-      } else if (error?.code === 'auth/invalid-email') {
-        errorMsg = isBangla ? 'সটীক ইমেইল আইডি দিন।' : 'Please enter a valid email.';
-      } else if (error?.code === 'auth/weak-password') {
-        errorMsg = isBangla ? 'পাসওয়ার্ডটি দুর্বল! কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড দিন।' : 'Password is too weak! Use at least 6 characters.';
-      }
-      showToast(errorMsg);
-    } finally {
-      setIsSyncing(false);
-      setSyncMessage('');
-    }
-  };
-
-
 
   // Language Toggler
   const toggleLanguage = () => {
@@ -1182,6 +1195,16 @@ export default function App() {
     showToast(isBangla ? 'আইটেমটি তালিকা থেকে মুছে ফেলা হয়েছে!' : 'Item deleted from list!');
   };
 
+  // Update Out of Stock item
+  const handleUpdateOutOfStock = (id: string, newName: string) => {
+    if (!newName.trim()) return;
+    const updated = outOfStockItems.map(item => 
+      item.id === id ? { ...item, name: newName.trim() } : item
+    );
+    saveOutOfStockItemsToStorage(updated);
+    showToast(isBangla ? 'ঘাটতি পণ্যের নাম আপডেট করা হয়েছে!' : 'Out of stock item updated!');
+  };
+
   // Add Product rate item
   const handleAddProductRate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1212,6 +1235,16 @@ export default function App() {
     const updated = productRates.filter(item => item.id !== id);
     saveProductRatesToStorage(updated);
     showToast(isBangla ? 'মালের রেট মুছে ফেলা হয়েছে!' : 'Product rate deleted!');
+  };
+
+  // Update Product rate item
+  const handleUpdateProductRate = (id: string, newName: string, newPrice: number) => {
+    if (!newName.trim() || isNaN(newPrice) || newPrice < 0) return;
+    const updated = productRates.map(item => 
+      item.id === id ? { ...item, name: newName.trim(), buyingPrice: newPrice } : item
+    );
+    saveProductRatesToStorage(updated);
+    showToast(isBangla ? 'মালের রেট ও দাম আপডেট করা হয়েছে!' : 'Product rate updated!');
   };
 
   // Handle Due Deposit (বাকির টাকা জমা)
@@ -1333,25 +1366,67 @@ export default function App() {
     reader.readAsText(file);
   };
 
+  // Restore Cloud Backup manually
+  const handleRestoreCloudBackup = async () => {
+    if (!userEmail || !userEmail.trim()) {
+      showToast(isBangla ? 'অনুগ্রহ করে প্রথমে গুগল লগইন করুন।' : 'Please log in with Google first.');
+      return;
+    }
+    
+    setIsSyncing(true);
+    setSyncMessage(isBangla ? 'ক্লাউড থেকে ব্যাকআপ রিস্টোর করা হচ্ছে...' : 'Restoring backup from cloud...');
+    
+    try {
+      const cloudData = await downloadLedgerFromCloud(userEmail);
+      if (cloudData) {
+        setTransactions(cloudData.transactions || []);
+        setExpenses(cloudData.expenses || []);
+        setOutOfStockItems(cloudData.outOfStockItems || []);
+        setProductRates(cloudData.productRates || []);
+        if (cloudData.shopName !== undefined) {
+          setShopName(cloudData.shopName);
+          localStorage.setItem('hisab_khata_shop_name', cloudData.shopName);
+        }
+        localStorage.setItem('hisab_khata_transactions', JSON.stringify(cloudData.transactions || []));
+        localStorage.setItem('hisab_khata_expenses', JSON.stringify(cloudData.expenses || []));
+        localStorage.setItem('hisab_khata_out_of_stock', JSON.stringify(cloudData.outOfStockItems || []));
+        localStorage.setItem('hisab_khata_product_rates', JSON.stringify(cloudData.productRates || []));
+        localStorage.setItem('hisab_khata_last_updated', String(cloudData.updatedAt || Date.now()));
+        
+        showToast(isBangla ? 'ক্লাউড ব্যাকআপ সফলভাবে রিস্টোর করা হয়েছে!' : 'Cloud backup successfully restored!');
+      } else {
+        showToast(isBangla ? 'ক্লাউডে কোনো ব্যাকআপ ডেটা পাওয়া যায়নি।' : 'No backup data found on cloud.');
+      }
+    } catch (error) {
+      console.error('Failed to restore from cloud:', error);
+      showToast(isBangla ? 'ক্লাউড ব্যাকআপ রিস্টোর করতে ব্যর্থ হয়েছে!' : 'Failed to restore cloud backup!');
+    } finally {
+      setIsSyncing(false);
+      setSyncMessage('');
+    }
+  };
+
   // Hard Reset Database option
   const handleHardReset = () => {
-    const doubleCheck = window.confirm(
-      isBangla 
+    setConfirmModal({
+      isOpen: true,
+      title: isBangla ? 'খাতা সম্পূর্ণ খালি করুন?' : 'Clear all ledger data?',
+      message: isBangla 
         ? '⚠️ আপনি কি নিশ্চিতভাবে সমস্ত ডেটা মুছে ফেলে খাতা সম্পূর্ণ খালি করতে চান? এই কাজ আর ফেরত নেওয়া যাবে না।' 
-        : '⚠️ ARE YOU SURE you want to clear all ledger data? This action cannot be undone!'
-    );
-    if (!doubleCheck) return;
-
-    setTransactions([]);
-    setExpenses([]);
-    setOutOfStockItems([]);
-    setProductRates([]);
-    localStorage.removeItem('hisab_khata_transactions');
-    localStorage.removeItem('hisab_khata_expenses');
-    localStorage.removeItem('hisab_khata_out_of_stock');
-    localStorage.removeItem('hisab_khata_product_rates');
-    showToast(isBangla ? 'সমস্ত হিসাব মুছে খাতা খালি করা হয়েছে।' : 'All ledger data cleared.');
-    triggerCloudSync([], [], shopName, userEmail, [], []);
+        : '⚠️ ARE YOU SURE you want to clear all ledger data? This action cannot be undone!',
+      onConfirm: () => {
+        setTransactions([]);
+        setExpenses([]);
+        setOutOfStockItems([]);
+        setProductRates([]);
+        localStorage.removeItem('hisab_khata_transactions');
+        localStorage.removeItem('hisab_khata_expenses');
+        localStorage.removeItem('hisab_khata_out_of_stock');
+        localStorage.removeItem('hisab_khata_product_rates');
+        showToast(isBangla ? 'সমস্ত হিসাব মুছে খাতা খালি করা হয়েছে।' : 'All ledger data cleared.');
+        triggerCloudSync([], [], shopName, userEmail, [], []);
+      }
+    });
   };
 
 
@@ -1809,9 +1884,9 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="max-w-4xl mx-auto w-full px-4 py-4 space-y-6"
+            className="max-w-4xl mx-auto w-full px-4 py-4 space-y-5"
           >
-            {/* Page Header */}
+            {/* Page Header Info */}
             <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">
@@ -1824,294 +1899,485 @@ export default function App() {
                     : 'List of out of stock goods and product wholesale/buying rates.'}
                 </p>
               </div>
-              
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsOutOfStockModalOpen(true)}
-                  className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl border border-amber-200/50 transition-all cursor-pointer flex items-center gap-1.5 shadow-3xs"
-                >
-                  <PlusCircle className="h-4 w-4 text-amber-600" />
-                  <span>{isBangla ? 'ঘাটতি পণ্য যোগ' : 'Add Out Of Stock'}</span>
-                </button>
-                <button
-                  onClick={() => setIsProductRateModalOpen(true)}
-                  className="px-3.5 py-2 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-bold rounded-xl border border-sky-200/50 transition-all cursor-pointer flex items-center gap-1.5 shadow-3xs"
-                >
-                  <PlusCircle className="h-4 w-4 text-sky-600" />
-                  <span>{isBangla ? 'মালের রেট যোগ' : 'Add Product Rate'}</span>
-                </button>
-              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Custom Dual Sub-Tabs Selector Bar */}
+            <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 flex items-center gap-1.5 shadow-2xs max-w-xl mx-auto w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInfoTab('oos');
+                  setShowAllOos(false);
+                }}
+                className={`flex-1 py-3 px-4 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-2 ${
+                  activeInfoTab === 'oos'
+                    ? 'bg-white text-amber-800 shadow-sm border border-slate-200/40'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                <span>{isBangla ? 'শর্ট/নেই মাল এর তালিকা' : 'Short/Out of Stock'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInfoTab('rates');
+                  setShowAllRates(false);
+                }}
+                className={`flex-1 py-3 px-4 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-2 ${
+                  activeInfoTab === 'rates'
+                    ? 'bg-white text-sky-800 shadow-sm border border-slate-200/40'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Coins className="h-4 w-4 text-sky-600 shrink-0" />
+                <span>{isBangla ? 'পণ্যের রেট তালিকা' : 'Product Rate List'}</span>
+              </button>
+            </div>
+
+            {/* Content Card Panel */}
+            <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs flex flex-col min-h-[460px]">
               
-              {/* Box 1: দোকানে মাল নেই */}
-              <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs flex flex-col min-h-[460px]">
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1.5 bg-amber-50 rounded-lg text-amber-700">
+              {/* Header inside Card (Title + Add Button) */}
+              {activeInfoTab === 'oos' ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="p-1.5 bg-amber-50 rounded-lg text-amber-700 shrink-0">
                       <AlertCircle className="h-4 w-4" />
                     </span>
-                    <h3 className="font-bold text-slate-800 text-sm">
-                      {isBangla ? 'দোকানে মাল নেই' : 'Out of Stock Goods'}
+                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                      {isBangla ? 'শর্ট/নেই মাল এর তালিকা' : 'Short/Out of Stock'}
                     </h3>
                   </div>
-                  <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-sans">
-                    {isBangla ? toBanglaNumber(outOfStockItems.length) : outOfStockItems.length}
-                  </span>
+                  <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-extrabold bg-amber-100 text-amber-850 px-2.5 py-1 rounded-full font-sans">
+                        {isBangla ? toBanglaNumber(outOfStockItems.length) : outOfStockItems.length}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-bold sm:hidden">
+                        {isBangla ? 'টি পণ্য' : 'items'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setIsOutOfStockModalOpen(true)}
+                      className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-amber-700 to-amber-800 hover:from-amber-800 hover:to-amber-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
+                    >
+                      <Plus className="h-3.5 w-3.5 stroke-[3]" />
+                      <span>{isBangla ? 'যোগ করুন' : 'Add New'}</span>
+                    </button>
+                  </div>
                 </div>
-
-                {/* Local Search for Out Of Stock */}
-                <div className="mb-4">
-                  <input
-                    type="text"
-                    placeholder={isBangla ? 'মালের নাম দিয়ে খুঁজুন...' : 'Search goods...'}
-                    value={oosSearch}
-                    onChange={(e) => {
-                      setOosSearch(e.target.value);
-                      setOosPage(1);
-                      setShowAllOos(false);
-                    }}
-                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  />
-                </div>
-
-                {/* List Container */}
-                <div className="flex-1 space-y-2 flex flex-col justify-between">
-                  {(() => {
-                    const filteredOos = outOfStockItems.filter(item => 
-                      item.name.toLowerCase().includes(oosSearch.toLowerCase())
-                    );
-                    
-                    const itemsToShow = showAllOos ? filteredOos : filteredOos.slice(0, 6);
-
-                    if (filteredOos.length === 0) {
-                      return (
-                        <div className="flex flex-col items-center justify-center text-center py-16 flex-1 text-slate-400">
-                          <AlertCircle className="h-10 w-10 text-slate-300 mb-2" />
-                          <p className="text-xs font-semibold">
-                            {isBangla ? 'কোনো তথ্য খুঁজে পাওয়া যায়নি!' : 'No out of stock items found!'}
-                          </p>
-                          <button
-                            onClick={() => setIsOutOfStockModalOpen(true)}
-                            className="mt-3 text-xs text-amber-600 hover:text-amber-700 font-bold underline cursor-pointer"
-                          >
-                            {isBangla ? 'নতুন যোগ করুন' : 'Add new item'}
-                          </button>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="flex-1 flex flex-col justify-between">
-                        <div className={`space-y-2.5 ${showAllOos ? 'max-h-[350px] overflow-y-auto pr-1' : ''}`}>
-                          {itemsToShow.map((item) => (
-                            <div 
-                              key={item.id} 
-                              className="flex items-center justify-between p-3 bg-amber-50/40 rounded-xl border border-amber-100 hover:bg-amber-50/80 transition-colors"
-                            >
-                              <div>
-                                <h4 className="text-xs font-extrabold text-slate-800">{item.name}</h4>
-                                <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
-                                  {isBangla ? 'যুক্ত করা হয়েছে: ' : 'Added: '} 
-                                  {formatDate(item.dateAdded, isBangla)}
-                                </span>
-                              </div>
-                              {deletingOosId === item.id ? (
-                                <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 p-1 rounded-lg shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      handleDeleteOutOfStock(item.id);
-                                      setDeletingOosId(null);
-                                    }}
-                                    className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] rounded-md transition-colors cursor-pointer"
-                                  >
-                                    {isBangla ? 'হ্যাঁ' : 'Yes'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setDeletingOosId(null)}
-                                    className="px-2 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black text-[9px] rounded-md transition-colors cursor-pointer"
-                                  >
-                                    {isBangla ? 'না' : 'No'}
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => setDeletingOosId(item.id)}
-                                  className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer shrink-0"
-                                  title={isBangla ? 'মুছে ফেলুন' : 'Delete'}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* See More Button */}
-                        {filteredOos.length > 6 && (
-                          <div className="flex justify-center pt-4 border-t border-slate-100 mt-4">
-                            <button
-                              onClick={() => setShowAllOos(!showAllOos)}
-                              className="px-4 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100/60 rounded-xl border border-amber-200/50 flex items-center gap-1.5 cursor-pointer transition-all shadow-3xs"
-                            >
-                              <span>
-                                {showAllOos 
-                                  ? (isBangla ? 'কম দেখুন' : 'Show Less') 
-                                  : (isBangla ? 'আরও দেখুন' : 'See More')}
-                              </span>
-                              {showAllOos ? (
-                                <ChevronLeft className="h-3.5 w-3.5 rotate-90" />
-                              ) : (
-                                <ChevronRight className="h-3.5 w-3.5 rotate-90" />
-                              )}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              {/* Box 2: মালের রেট ও কেনা দাম */}
-              <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs flex flex-col min-h-[460px]">
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1.5 bg-sky-50 rounded-lg text-sky-700">
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="p-1.5 bg-sky-50 rounded-lg text-sky-700 shrink-0">
                       <Coins className="h-4 w-4" />
                     </span>
-                    <h3 className="font-bold text-slate-800 text-sm">
-                      {isBangla ? 'মালের রেট ও কেনা দাম' : 'Product Wholesale Rates'}
+                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                      {isBangla ? 'পণ্যের রেট ও কেনা দাম' : 'Product Wholesale Rates'}
                     </h3>
                   </div>
-                  <span className="text-xs font-bold bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full font-sans">
-                    {isBangla ? toBanglaNumber(productRates.length) : productRates.length}
-                  </span>
+                  <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-extrabold bg-sky-100 text-sky-850 px-2.5 py-1 rounded-full font-sans">
+                        {isBangla ? toBanglaNumber(productRates.length) : productRates.length}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-bold sm:hidden">
+                        {isBangla ? 'টি পণ্য' : 'items'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setIsProductRateModalOpen(true)}
+                      className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-sky-700 to-sky-800 hover:from-sky-800 hover:to-sky-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
+                    >
+                      <Plus className="h-3.5 w-3.5 stroke-[3]" />
+                      <span>{isBangla ? 'যোগ করুন' : 'Add New'}</span>
+                    </button>
+                  </div>
                 </div>
+              )}
 
-                {/* Local Search for Product Rates */}
-                <div className="mb-4">
-                  <input
-                    type="text"
-                    placeholder={isBangla ? 'মালের নাম দিয়ে খুঁজুন...' : 'Search product...'}
-                    value={rateSearch}
-                    onChange={(e) => {
-                      setRateSearch(e.target.value);
-                      setRatePage(1);
-                      setShowAllRates(false);
-                    }}
-                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
+              {/* Tab Specific Content */}
+              {activeInfoTab === 'oos' ? (
+                <div className="flex-1 flex flex-col justify-between">
+                  {/* Local Search for Out Of Stock */}
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      placeholder={isBangla ? 'মালের নাম দিয়ে খুঁজুন...' : 'Search goods...'}
+                      value={oosSearch}
+                      onChange={(e) => {
+                        setOosSearch(e.target.value);
+                        setOosPage(1);
+                        setShowAllOos(false);
+                      }}
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
+                    />
+                  </div>
 
-                {/* List Container */}
-                <div className="flex-1 space-y-2 flex flex-col justify-between">
-                  {(() => {
-                    const filteredRates = productRates.filter(item => 
-                      item.name.toLowerCase().includes(rateSearch.toLowerCase())
-                    );
-                    
-                    const itemsToShow = showAllRates ? filteredRates : filteredRates.slice(0, 6);
-
-                    if (filteredRates.length === 0) {
-                      return (
-                        <div className="flex flex-col items-center justify-center text-center py-16 flex-1 text-slate-400">
-                          <Coins className="h-10 w-10 text-slate-300 mb-2" />
-                          <p className="text-xs font-semibold">
-                            {isBangla ? 'কোনো তথ্য খুঁজে পাওয়া যায়নি!' : 'No product rates found!'}
-                          </p>
-                          <button
-                            onClick={() => setIsProductRateModalOpen(true)}
-                            className="mt-3 text-xs text-sky-600 hover:text-sky-700 font-bold underline cursor-pointer"
-                          >
-                            {isBangla ? 'নতুন যোগ করুন' : 'Add new rate'}
-                          </button>
-                        </div>
+                  {/* List Container without lagging layout animation */}
+                  <div className="flex-1 space-y-2 flex flex-col justify-between">
+                    {(() => {
+                      const filteredOos = outOfStockItems.filter(item => 
+                        item.name.toLowerCase().includes(oosSearch.toLowerCase())
                       );
-                    }
+                      
+                      const itemsToShow = showAllOos ? filteredOos : filteredOos.slice(0, 6);
 
-                    return (
-                      <div className="flex-1 flex flex-col justify-between">
-                        <div className={`space-y-2.5 ${showAllRates ? 'max-h-[350px] overflow-y-auto pr-1' : ''}`}>
-                          {itemsToShow.map((item) => (
-                            <div 
-                              key={item.id} 
-                              className="flex items-center justify-between p-3 bg-sky-50/40 rounded-xl border border-sky-100 hover:bg-sky-50/80 transition-colors"
-                            >
-                              <div>
-                                <h4 className="text-xs font-extrabold text-slate-800">{item.name}</h4>
-                                <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
-                                  {isBangla ? 'যুক্ত করা হয়েছে: ' : 'Added: '} 
-                                  {formatDate(item.dateAdded, isBangla)}
-                                </span>
-                              </div>
-                              
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-xs font-black text-sky-700 font-sans bg-sky-100/60 px-2 py-1 rounded-lg">
-                                  {formatCurrency(item.buyingPrice, isBangla)}
-                                </span>
-                                {deletingRateId === item.id ? (
-                                  <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 p-1 rounded-lg">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        handleDeleteProductRate(item.id);
-                                        setDeletingRateId(null);
-                                      }}
-                                      className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] rounded-md transition-colors cursor-pointer"
-                                    >
-                                      {isBangla ? 'হ্যাঁ' : 'Yes'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setDeletingRateId(null)}
-                                      className="px-2 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black text-[9px] rounded-md transition-colors cursor-pointer"
-                                    >
-                                      {isBangla ? 'না' : 'No'}
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => setDeletingRateId(item.id)}
-                                    className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                                    title={isBangla ? 'মুছে ফেলুন' : 'Delete'}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* See More Button */}
-                        {filteredRates.length > 6 && (
-                          <div className="flex justify-center pt-4 border-t border-slate-100 mt-4">
+                      if (filteredOos.length === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center text-center py-16 flex-1 text-slate-400">
+                            <AlertCircle className="h-10 w-10 text-slate-300 mb-2" />
+                            <p className="text-xs font-semibold">
+                              {isBangla ? 'কোনো তথ্য খুঁজে পাওয়া যায়নি!' : 'No out of stock items found!'}
+                            </p>
                             <button
-                              onClick={() => setShowAllRates(!showAllRates)}
-                              className="px-4 py-2 text-xs font-bold text-sky-800 hover:bg-sky-100/60 rounded-xl border border-sky-200/50 flex items-center gap-1.5 cursor-pointer transition-all shadow-3xs"
+                              onClick={() => setIsOutOfStockModalOpen(true)}
+                              className="mt-3 text-xs text-amber-600 hover:text-amber-700 font-bold underline cursor-pointer"
                             >
-                              <span>
-                                {showAllRates 
-                                  ? (isBangla ? 'কম দেখুন' : 'Show Less') 
-                                  : (isBangla ? 'আরও দেখুন' : 'See More')}
-                              </span>
-                              {showAllRates ? (
-                                <ChevronLeft className="h-3.5 w-3.5 rotate-90" />
-                              ) : (
-                                <ChevronRight className="h-3.5 w-3.5 rotate-90" />
-                              )}
+                              {isBangla ? 'নতুন যোগ করুন' : 'Add new item'}
                             </button>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })()}
+                        );
+                      }
+
+                      return (
+                        <div className="flex-1 flex flex-col justify-between">
+                          <div className="space-y-2.5">
+                            {itemsToShow.map((item) => {
+                              const isEditing = editingOosId === item.id;
+                              return (
+                                <div 
+                                  key={item.id} 
+                                  className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-150 ${
+                                    isEditing 
+                                      ? 'bg-amber-50 border-amber-300 shadow-3xs' 
+                                      : 'bg-amber-50/40 border-amber-100 hover:bg-amber-50/80 hover:border-amber-200'
+                                  }`}
+                                >
+                                  {isEditing ? (
+                                    <div className="flex-1 flex flex-col gap-2">
+                                      <input
+                                        type="text"
+                                        value={editOosName}
+                                        onChange={(e) => setEditOosName(e.target.value)}
+                                        className="w-full text-xs p-1.5 rounded-lg border border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white font-bold text-slate-800"
+                                        autoFocus
+                                      />
+                                      <div className="flex items-center gap-1.5 justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingOosId(null)}
+                                          className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
+                                        >
+                                          <X className="h-3 w-3" />
+                                          <span>{isBangla ? 'বাতিল' : 'Cancel'}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (editOosName.trim()) {
+                                              handleUpdateOutOfStock(item.id, editOosName);
+                                              setEditingOosId(null);
+                                            }
+                                          }}
+                                          className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
+                                        >
+                                          <Check className="h-3 w-3" />
+                                          <span>{isBangla ? 'সেভ' : 'Save'}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="min-w-0 flex-1 pr-2">
+                                        <h4 className="text-xs font-extrabold text-slate-800 break-words whitespace-normal leading-snug">{item.name}</h4>
+                                        <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
+                                          {isBangla ? 'যুক্ত করা হয়েছে: ' : 'Added: '} 
+                                          {formatDate(item.dateAdded, isBangla)}
+                                        </span>
+                                      </div>
+                                      
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <button
+                                          onClick={() => {
+                                            setEditingOosId(item.id);
+                                            setEditOosName(item.name);
+                                            setDeletingOosId(null);
+                                          }}
+                                          className="p-1.5 hover:bg-amber-100 text-slate-400 hover:text-amber-600 rounded-lg transition-colors cursor-pointer"
+                                          title={isBangla ? 'নাম পরিবর্তন' : 'Edit'}
+                                        >
+                                          <Edit2 className="h-3.5 w-3.5" />
+                                        </button>
+                                        {deletingOosId === item.id ? (
+                                          <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 p-1 rounded-lg shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                handleDeleteOutOfStock(item.id);
+                                                setDeletingOosId(null);
+                                              }}
+                                              className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] rounded-md transition-colors cursor-pointer"
+                                            >
+                                              {isBangla ? 'হ্যাঁ' : 'Yes'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setDeletingOosId(null)}
+                                              className="px-2 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black text-[9px] rounded-md transition-colors cursor-pointer"
+                                            >
+                                              {isBangla ? 'না' : 'No'}
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            onClick={() => {
+                                              setDeletingOosId(item.id);
+                                              setEditingOosId(null);
+                                            }}
+                                            className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer shrink-0"
+                                            title={isBangla ? 'মুছে ফেলুন' : 'Delete'}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* See More Button */}
+                          {filteredOos.length > 6 && (
+                            <div className="flex justify-center pt-4 border-t border-slate-100 mt-4">
+                              <button
+                                onClick={() => setShowAllOos(!showAllOos)}
+                                className="px-4 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100/60 rounded-xl border border-amber-200/50 flex items-center gap-1.5 cursor-pointer transition-all shadow-3xs active:scale-95"
+                              >
+                                <span>
+                                  {showAllOos 
+                                    ? (isBangla ? 'কম দেখুন' : 'Show Less') 
+                                    : (isBangla ? 'আরও দেখুন' : 'See More')}
+                                </span>
+                                {showAllOos ? (
+                                  <ChevronLeft className="h-3.5 w-3.5 rotate-90" />
+                                ) : (
+                                  <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex-1 flex flex-col justify-between">
+                  {/* Local Search for Product Rates */}
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      placeholder={isBangla ? 'মালের নাম দিয়ে খুঁজুন...' : 'Search product...'}
+                      value={rateSearch}
+                      onChange={(e) => {
+                        setRateSearch(e.target.value);
+                        setRatePage(1);
+                        setShowAllRates(false);
+                      }}
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
+                    />
+                  </div>
+
+                  {/* List Container without lagging layout animation */}
+                  <div className="flex-1 space-y-2 flex flex-col justify-between">
+                    {(() => {
+                      const filteredRates = productRates.filter(item => 
+                        item.name.toLowerCase().includes(rateSearch.toLowerCase())
+                      );
+                      
+                      const itemsToShow = showAllRates ? filteredRates : filteredRates.slice(0, 6);
+
+                      if (filteredRates.length === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center text-center py-16 flex-1 text-slate-400">
+                            <Coins className="h-10 w-10 text-slate-300 mb-2" />
+                            <p className="text-xs font-semibold">
+                              {isBangla ? 'কোনো তথ্য খুঁজে পাওয়া যায়নি!' : 'No product rates found!'}
+                            </p>
+                            <button
+                              onClick={() => setIsProductRateModalOpen(true)}
+                              className="mt-3 text-xs text-sky-600 hover:text-sky-700 font-bold underline cursor-pointer"
+                            >
+                              {isBangla ? 'নতুন যোগ করুন' : 'Add new rate'}
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex-1 flex flex-col justify-between">
+                          <div className="space-y-2.5">
+                            {itemsToShow.map((item) => {
+                              const isEditing = editingRateId === item.id;
+                              return (
+                                <div 
+                                  key={item.id} 
+                                  className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-150 ${
+                                    isEditing 
+                                      ? 'bg-sky-50 border-sky-300 shadow-3xs' 
+                                      : 'bg-sky-50/40 border-sky-100 hover:bg-sky-50/80 hover:border-sky-200'
+                                  }`}
+                                >
+                                  {isEditing ? (
+                                    <div className="flex-1 flex flex-col gap-2">
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <div>
+                                          <label className="block text-[9px] font-black text-slate-500 mb-0.5">
+                                            {isBangla ? 'মালের নাম' : 'Product Name'}
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={editRateName}
+                                            onChange={(e) => setEditRateName(e.target.value)}
+                                            className="w-full text-xs p-1.5 rounded-lg border border-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-bold text-slate-800"
+                                            autoFocus
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[9px] font-black text-slate-500 mb-0.5">
+                                            {isBangla ? 'কেনা দাম (৳)' : 'Price (৳)'}
+                                          </label>
+                                          <input
+                                            type="number"
+                                            value={editRatePrice}
+                                            onChange={(e) => setEditRatePrice(e.target.value)}
+                                            className="w-full text-xs p-1.5 rounded-lg border border-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-bold text-slate-800"
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingRateId(null)}
+                                          className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
+                                        >
+                                          <X className="h-3 w-3" />
+                                          <span>{isBangla ? 'বাতিল' : 'Cancel'}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const priceNum = parseFloat(editRatePrice);
+                                            if (editRateName.trim() && !isNaN(priceNum) && priceNum >= 0) {
+                                              handleUpdateProductRate(item.id, editRateName, priceNum);
+                                              setEditingRateId(null);
+                                            }
+                                          }}
+                                          className="px-2 py-1 bg-sky-600 hover:bg-sky-700 text-white font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
+                                        >
+                                          <Check className="h-3 w-3" />
+                                          <span>{isBangla ? 'সেভ' : 'Save'}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="min-w-0 flex-1 pr-2">
+                                        <h4 className="text-xs font-extrabold text-slate-800 break-words whitespace-normal leading-snug">{item.name}</h4>
+                                        <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
+                                          {isBangla ? 'যুক্ত করা হয়েছে: ' : 'Added: '} 
+                                          {formatDate(item.dateAdded, isBangla)}
+                                        </span>
+                                      </div>
+                                      
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <span className="text-xs font-black text-sky-700 font-sans bg-sky-100/60 px-2 py-1 rounded-lg">
+                                          {formatCurrency(item.buyingPrice, isBangla)}
+                                        </span>
+                                        
+                                        <button
+                                          onClick={() => {
+                                            setEditingRateId(item.id);
+                                            setEditRateName(item.name);
+                                            setEditRatePrice(String(item.buyingPrice));
+                                            setDeletingRateId(null);
+                                          }}
+                                          className="p-1.5 hover:bg-sky-150 text-slate-400 hover:text-sky-600 rounded-lg transition-colors cursor-pointer"
+                                          title={isBangla ? 'পরিবর্তন করুন' : 'Edit'}
+                                        >
+                                          <Edit2 className="h-3.5 w-3.5" />
+                                        </button>
+                                        
+                                        {deletingRateId === item.id ? (
+                                          <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 p-1 rounded-lg">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                handleDeleteProductRate(item.id);
+                                                setDeletingRateId(null);
+                                              }}
+                                              className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] rounded-md transition-colors cursor-pointer"
+                                            >
+                                              {isBangla ? 'হ্যাঁ' : 'Yes'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setDeletingRateId(null)}
+                                              className="px-2 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black text-[9px] rounded-md transition-colors cursor-pointer"
+                                            >
+                                              {isBangla ? 'না' : 'No'}
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            onClick={() => {
+                                              setDeletingRateId(item.id);
+                                              setEditingRateId(null);
+                                            }}
+                                            className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                            title={isBangla ? 'মুছে ফেলুন' : 'Delete'}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* See More Button */}
+                          {filteredRates.length > 6 && (
+                            <div className="flex justify-center pt-4 border-t border-slate-100 mt-4">
+                              <button
+                                onClick={() => setShowAllRates(!showAllRates)}
+                                className="px-4 py-2 text-xs font-bold text-sky-800 hover:bg-sky-100/60 rounded-xl border border-sky-200/50 flex items-center gap-1.5 cursor-pointer transition-all shadow-3xs active:scale-95"
+                              >
+                                <span>
+                                  {showAllRates 
+                                    ? (isBangla ? 'কম দেখুন' : 'Show Less') 
+                                    : (isBangla ? 'আরও দেখুন' : 'See More')}
+                                </span>
+                                {showAllRates ? (
+                                  <ChevronLeft className="h-3.5 w-3.5 rotate-90" />
+                                ) : (
+                                  <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
 
             </div>
           </motion.div>
@@ -2617,185 +2883,365 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="max-w-xl mx-auto w-full px-4 py-4 space-y-6"
+            className="max-w-xl mx-auto w-full px-4 py-4 space-y-5"
           >
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
-              <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                <SettingsIcon className="h-5 w-5 text-teal-600" />
-                <span>{isBangla ? 'হিসাব খাতা সেটিংস' : 'Ledger App Settings'}</span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {isBangla ? 'অ্যাপের সেটিংস ও গ্রাহকের দোকান বা ব্যাকআপ ম্যানেজ করুন।' : 'Configure store metadata and data retention.'}
-              </p>
-            </div>
-
-            {/* Shop Settings Card */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
-                {isBangla ? 'দোকানের সেটিংস' : 'Store Settings'}
-              </h3>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-600">
-                  {isBangla ? 'গ্রাহকের দোকানের নাম' : 'Store Name'}
-                </label>
-                <input
-                  type="text"
-                  placeholder={isBangla ? 'যেমন: মেসার্স জনি ট্রেডার্স' : 'e.g. M/S Jony Traders'}
-                  value={shopName}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setShopName(val);
-                    localStorage.setItem('hisab_khata_shop_name', val);
-                    localStorage.setItem('hisab_khata_last_updated', String(Date.now()));
-                  }}
-                  onBlur={(e) => {
-                    const val = e.target.value;
-                    const now = Date.now();
-                    localStorage.setItem('hisab_khata_shop_name', val);
-                    localStorage.setItem('hisab_khata_last_updated', String(now));
-                    if (isSyncActive) {
-                      triggerCloudSync(transactions, expenses, val, userEmail);
-                    }
-                  }}
-                  className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold"
-                />
-                <p className="text-[10px] text-slate-400">
-                  {isBangla ? '* এই নামটি লোগোর নিচে হোম স্ক্রিনে দেখাবে।' : '* This name will be displayed underneath the logo on header.'}
-                </p>
-              </div>
-            </div>
-
-            {/* Cloud Sync Settings */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
-                {isBangla ? 'ক্লাউড সিঙ্ক অ্যাকাউন্ট' : 'Cloud Sync Account'}
-              </h3>
-
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-600">
-                    {isBangla ? 'পছন্দের সিঙ্ক ইমেইল আইডি' : 'Preferred Sync Email ID'}
-                  </label>
-                  <input
-                    type="email"
-                    value={userEmail}
-                    onChange={(e) => {
-                      setUserEmail(e.target.value);
-                      localStorage.setItem('hisab_khata_sync_email', e.target.value);
-                    }}
-                    placeholder="e.g. jony@example.com"
-                    className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold font-sans"
-                  />
-                </div>
-
-                {currentUser && currentUser.email && (
-                  <div className="flex items-center justify-between px-3 py-2 bg-teal-50/50 rounded-lg border border-teal-100/50">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></span>
-                      <span className="text-[11px] text-teal-800 font-bold truncate max-w-[180px] font-sans">
-                        {currentUser.email}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="text-[10px] text-rose-600 hover:text-rose-800 font-extrabold cursor-pointer hover:bg-rose-50 px-2 py-0.5 rounded border border-rose-100"
-                    >
-                      {isBangla ? 'লগআউট' : 'Logout'}
-                    </button>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-150 rounded-xl">
-                  <div className="flex items-center gap-2">
-                    <Cloud className="h-4 w-4 text-teal-600 animate-pulse" />
-                    <span className="text-xs font-bold text-slate-700">
-                      {isSyncActive ? (isBangla ? 'সিঙ্ক সক্রিয় আছে' : 'Sync Active') : (isBangla ? 'সিঙ্ক বন্ধ আছে' : 'Sync Inactive')}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => toggleSyncState(userEmail)}
-                    className={`px-3 py-1.5 text-[10px] font-extrabold rounded-lg border transition-colors cursor-pointer ${
-                      isSyncActive
-                        ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
-                        : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-                    }`}
-                  >
-                    {isSyncActive ? (isBangla ? 'বন্ধ করুন' : 'Disable') : (isBangla ? 'চালু করুন' : 'Enable')}
-                  </button>
-                </div>
-
-                {isSyncActive && (
-                  <div className="grid grid-cols-2 gap-2.5 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => triggerCloudSync(transactions, expenses, shopName, userEmail, outOfStockItems, productRates)}
-                      disabled={isSyncing}
-                      className="py-2 px-2 bg-teal-50/50 hover:bg-teal-50 border border-teal-100 rounded-xl text-xs font-bold text-teal-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-all disabled:opacity-50"
-                    >
-                      <FileUp className="h-4 w-4 text-teal-600" />
-                      <span>{isBangla ? 'এখনই সিঙ্ক করুন' : 'Sync Now'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const confirmOver = window.confirm(
-                          isBangla 
-                            ? '⚠️ আপনি কি পূর্বের সকল ক্লাউড ব্যাকআপ মুছে বর্তমান ডিভাইসের ডাটা দিয়ে একদম নতুন করে ব্যাকআপ দিতে চান?'
-                            : '⚠️ Are you sure you want to overwrite previous cloud backup with current device data?'
-                        );
-                        if (!confirmOver) return;
-                        await triggerCloudSync(transactions, expenses, shopName, userEmail, outOfStockItems, productRates);
-                        showToast(isBangla ? 'পূর্বের ক্লাউড ব্যাকআপ সফলভাবে পরিবর্তন করা হয়েছে!' : 'Successfully reset and overwrote cloud backup!');
-                      }}
-                      disabled={isSyncing}
-                      className="py-2 px-2 bg-rose-50/50 hover:bg-rose-50 border border-rose-100 rounded-xl text-xs font-bold text-rose-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-all disabled:opacity-50"
-                    >
-                      <RotateCcw className="h-4 w-4 text-rose-600" />
-                      <span>{isBangla ? 'ব্যাকআপ রিসেট করুন' : 'Reset Backup'}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Backup Restore Card */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
-                {isBangla ? 'ডাটা সংরক্ষণ ও রিসেট' : 'Backup & Hard Reset'}
-              </h3>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  onClick={handleExportBackup}
-                  className="py-2.5 px-3 border border-slate-200 bg-white rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-                >
-                  <FileDown className="h-4 w-4 text-teal-600" />
-                  <span>{isBangla ? 'ডাউনলোড খাতা' : 'Download JSON'}</span>
-                </button>
-
-                <label className="py-2.5 px-3 border border-slate-200 bg-white rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors">
-                  <FileUp className="h-4 w-4 text-indigo-600" />
-                  <span>{isBangla ? 'আপলোড খাতা' : 'Upload JSON'}</span>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleImportBackup}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
+            {/* Settings Tab Navigation Header */}
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-3xs">
               <button
-                onClick={handleHardReset}
-                className="w-full py-2.5 bg-rose-50/50 hover:bg-rose-50 border border-rose-100 hover:border-rose-200 text-rose-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                type="button"
+                onClick={() => setSettingsSubTab('store')}
+                className={`flex-1 py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                  settingsSubTab === 'store'
+                    ? 'bg-white text-teal-700 shadow-3xs'
+                    : 'text-slate-500 hover:text-slate-800 font-bold'
+                }`}
               >
-                <RotateCcw className="h-3.5 w-3.5" />
-                <span>{isBangla ? 'খাতা সম্পূর্ণ খালি করুন (Reset)' : 'Reset All Ledger Data'}</span>
+                {isBangla ? 'সাধারণ' : 'General'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab('sync')}
+                className={`flex-1 py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                  settingsSubTab === 'sync'
+                    ? 'bg-white text-teal-700 shadow-3xs'
+                    : 'text-slate-500 hover:text-slate-800 font-bold'
+                }`}
+              >
+                {isBangla ? 'গুগল সিঙ্ক' : 'Google Sync'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab('about')}
+                className={`flex-1 py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                  settingsSubTab === 'about'
+                    ? 'bg-white text-teal-700 shadow-3xs'
+                    : 'text-slate-500 hover:text-slate-800 font-bold'
+                }`}
+              >
+                {isBangla ? 'আমাদের সম্পর্কে' : 'About Us'}
               </button>
             </div>
+
+            {settingsSubTab === 'store' && (
+              <motion.div
+                key="store-settings"
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
+                {/* Shop Settings Card */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
+                    {isBangla ? 'দোকানের সেটিংস' : 'Store Settings'}
+                  </h3>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-slate-600">
+                      {isBangla ? 'গ্রাহকের দোকানের নাম' : 'Store Name'}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={isBangla ? 'যেমন: মেসার্স জনি ট্রেডার্স' : 'e.g. M/S Jony Traders'}
+                      value={shopName}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setShopName(val);
+                        localStorage.setItem('hisab_khata_shop_name', val);
+                        localStorage.setItem('hisab_khata_last_updated', String(Date.now()));
+                      }}
+                      onBlur={(e) => {
+                        const val = e.target.value;
+                        const now = Date.now();
+                        localStorage.setItem('hisab_khata_shop_name', val);
+                        localStorage.setItem('hisab_khata_last_updated', String(now));
+                        if (isSyncActive) {
+                          triggerCloudSync(transactions, expenses, val, userEmail);
+                        }
+                      }}
+                      className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      {isBangla ? '* এই নামটি লোগোর নিচে হোম স্ক্রিনে দেখাবে।' : '* This name will be displayed underneath the logo on header.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Backup & Hard Reset Card */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
+                    {isBangla ? 'ডাটা সংরক্ষণ ও রিসেট' : 'Backup & Hard Reset'}
+                  </h3>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleExportBackup}
+                      className="py-2.5 px-3 border border-slate-200 bg-white rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                    >
+                      <FileDown className="h-4 w-4 text-teal-600" />
+                      <span>{isBangla ? 'ডাউনলোড খাতা' : 'Download JSON'}</span>
+                    </button>
+
+                    <label className="py-2.5 px-3 border border-slate-200 bg-white rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors">
+                      <FileUp className="h-4 w-4 text-indigo-600" />
+                      <span>{isBangla ? 'আপলোড খাতা' : 'Upload JSON'}</span>
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleImportBackup}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleHardReset}
+                    className="w-full py-2.5 bg-rose-50/50 hover:bg-rose-50 border border-rose-100 hover:border-rose-200 text-rose-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>{isBangla ? 'খাতা সম্পূর্ণ খালি করুন (Reset)' : 'Reset All Ledger Data'}</span>
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {settingsSubTab === 'sync' && (
+              <motion.div
+                key="sync-settings"
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
+                {/* Cloud Sync Settings */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
+                    {isBangla ? 'ক্লাউড সিঙ্ক অ্যাকাউন্ট' : 'Cloud Sync Account'}
+                  </h3>
+
+                  <div className="space-y-4">
+                    {currentUser && currentUser.email ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between px-3 py-2 bg-teal-50/50 rounded-lg border border-teal-100/50">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></span>
+                            <span className="text-[11px] text-teal-800 font-bold truncate max-w-[180px] font-sans">
+                              {currentUser.email}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleLogout}
+                            className="text-[10px] text-rose-600 hover:text-rose-800 font-extrabold cursor-pointer hover:bg-rose-50 px-2 py-0.5 rounded border border-rose-100"
+                          >
+                            {isBangla ? 'লগআউট' : 'Logout'}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-150 rounded-xl">
+                          <div className="flex items-center gap-2">
+                            <Cloud className="h-4 w-4 text-teal-600 animate-pulse" />
+                            <span className="text-xs font-bold text-slate-700">
+                              {isSyncActive ? (isBangla ? 'সিঙ্ক সক্রিয় আছে' : 'Sync Active') : (isBangla ? 'সিঙ্ক বন্ধ আছে' : 'Sync Inactive')}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleSyncState(currentUser.email || '')}
+                            className={`px-3 py-1.5 text-[10px] font-extrabold rounded-lg border transition-colors cursor-pointer ${
+                              isSyncActive
+                                ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                                : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                            }`}
+                          >
+                            {isSyncActive ? (isBangla ? 'বন্ধ করুন' : 'Disable') : (isBangla ? 'চালু করুন' : 'Enable')}
+                          </button>
+                        </div>
+
+                        {isSyncActive && (
+                          <div className="grid grid-cols-3 gap-2 mt-1">
+                            <button
+                              type="button"
+                              onClick={() => triggerCloudSync(transactions, expenses, shopName, currentUser.email || '')}
+                              disabled={isSyncing}
+                              className="py-2 px-1 bg-teal-50/50 hover:bg-teal-50 border border-teal-100 rounded-xl text-[10px] sm:text-xs font-bold text-teal-700 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-3xs transition-all disabled:opacity-50"
+                            >
+                              <FileUp className="h-4 w-4 text-teal-600" />
+                              <span className="text-center">{isBangla ? 'এখনই সিঙ্ক' : 'Sync Now'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleRestoreCloudBackup}
+                              disabled={isSyncing}
+                              className="py-2 px-1 bg-indigo-50/50 hover:bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] sm:text-xs font-bold text-indigo-700 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-3xs transition-all disabled:opacity-50"
+                            >
+                              <FileDown className="h-4 w-4 text-indigo-600" />
+                              <span className="text-center">{isBangla ? 'ব্যাকআপ রিস্টোর' : 'Restore Backup'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmModal({
+                                  isOpen: true,
+                                  title: isBangla ? 'ব্যাকআপ রিসেট ও ওভাররাইট করুন?' : 'Reset & Overwrite Backup?',
+                                  message: isBangla 
+                                    ? '⚠️ আপনি কি পূর্বের সকল ক্লাউড ব্যাকআপ মুছে বর্তমান ডিভাইসের ডাটা দিয়ে একদম নতুন করে ব্যাকআপ দিতে চান?'
+                                    : '⚠️ Are you sure you want to overwrite previous cloud backup with current device data?',
+                                  onConfirm: async () => {
+                                    setIsSyncing(true);
+                                    setSyncMessage(isBangla ? 'ক্লাউড ব্যাকআপ রিসেট ও আপডেট হচ্ছে...' : 'Resetting and overwriting cloud backup...');
+                                    try {
+                                      await uploadLedgerToCloud(
+                                        currentUser.email || userEmail,
+                                        transactions,
+                                        expenses,
+                                        shopName,
+                                        outOfStockItems,
+                                        productRates
+                                      );
+                                      localStorage.setItem('hisab_khata_last_updated', String(Date.now()));
+                                      showToast(isBangla ? 'পূর্বের ক্লাউড ব্যাকআপ সফলভাবে পরিবর্তন করা হয়েছে!' : 'Successfully reset and overwrote cloud backup!');
+                                    } catch (error) {
+                                      console.error('Failed to reset cloud backup:', error);
+                                      showToast(isBangla ? 'ব্যাকআপ রিসেট করতে ব্যর্থ হয়েছে!' : 'Failed to reset backup!');
+                                    } finally {
+                                      setIsSyncing(false);
+                                      setSyncMessage('');
+                                    }
+                                  }
+                                });
+                              }}
+                              disabled={isSyncing}
+                              className="py-2 px-1 bg-rose-50/50 hover:bg-rose-50 border border-rose-100 rounded-xl text-[10px] sm:text-xs font-bold text-rose-700 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-3xs transition-all disabled:opacity-50"
+                            >
+                              <RotateCcw className="h-4 w-4 text-rose-600" />
+                              <span className="text-center">{isBangla ? 'ব্যাকআপ রিসেট' : 'Reset Backup'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          {isBangla 
+                            ? 'আপনার হিসাব খাতার সকল ডাটা ফায়ারবেস ক্লাউডে রিয়েল-টাইমে সিঙ্ক করতে গুগল অ্যাকাউন্ট দিয়ে লগইন করুন।' 
+                            : 'Sign in with your Google account to sync all your ledger data in real-time to Firebase Cloud.'}
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={handleGoogleLogin}
+                          disabled={isSyncing}
+                          className="w-full py-3 px-4 bg-white hover:bg-slate-50 text-slate-700 font-extrabold text-xs rounded-xl border border-slate-200 shadow-3xs flex items-center justify-center gap-2 transition-all cursor-pointer h-11"
+                          id="settings-google-signin-btn"
+                        >
+                          <svg className="h-4 w-4 mr-1 shrink-0" viewBox="0 0 24 24">
+                            <path
+                              fill="#EA4335"
+                              d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.48 14.99 1 12 1 7.35 1 3.37 3.65 1.39 7.56l3.89 3.02C6.18 7.55 8.87 5.04 12 5.04z"
+                            />
+                            <path
+                              fill="#4285F4"
+                              d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.43c-.28 1.44-1.1 2.66-2.33 3.48l3.61 2.8c2.11-1.95 3.78-4.83 3.78-8.43z"
+                            />
+                            <path
+                              fill="#FBBC05"
+                              d="M5.28 14.42c-.25-.75-.39-1.55-.39-2.42s.14-1.67.39-2.42L1.39 7.56C.5 9.36 0 11.4 0 13.5s.5 4.14 1.39 5.94l3.89-3.02z"
+                            />
+                            <path
+                              fill="#34A853"
+                              d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.61-2.8c-1.12.75-2.54 1.21-4.35 1.21-3.13 0-5.82-2.51-6.72-5.54l-3.89 3.02C3.37 20.35 7.35 23 12 23z"
+                            />
+                          </svg>
+                          <span>{isBangla ? 'গুগল অ্যাকাউন্ট দিয়ে লগইন করুন' : 'Sign in with Google'}</span>
+                        </button>
+
+                        {isIframe && (
+                          <p className="text-[10px] text-amber-600 bg-amber-50 p-2.5 rounded-xl leading-normal font-bold border border-amber-100">
+                            ⚠️ {isBangla 
+                              ? 'আপনি প্রিভিউ ফ্রেমের ভেতরে আছেন। গুগল লগইন সফল করতে ওপরের "Open App" বাটনে ক্লিক করে নতুন ট্যাবে ওপেন করুন।' 
+                              : 'You are inside a preview frame. To log in with Google, click "Open App" at the top to open in a new tab.'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {isSyncing && (
+                      <div className="text-center py-1 text-xs text-indigo-600 font-bold animate-pulse flex items-center justify-center gap-1.5">
+                        <span className="h-3 w-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>
+                        <span>{syncMessage}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {settingsSubTab === 'about' && (
+              <motion.div
+                key="about-settings"
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
+                {/* About Us Card */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-5 text-center">
+                  <div className="flex justify-center">
+                    <img
+                      src={logoImg}
+                      alt="হিসাব খাতা"
+                      className="h-16 w-16 rounded-2xl object-cover shadow-md border border-slate-200/60"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 leading-none">
+                      {isBangla ? 'ডিজিটাল হিসাব খাতা' : 'Digital Hisab Khata'}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-2 font-bold">
+                      {isBangla ? 'নিরাপদ ও রিয়েল-টাইম ক্লাউড ব্যাকআপ হিসাব ব্যবস্থাপনাকারী' : 'Secure & Real-time Cloud Sync Ledger Manager'}
+                    </p>
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-4 text-left space-y-3.5 text-xs">
+                    <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-150">
+                      <span className="text-slate-500 font-bold">{isBangla ? 'ব্যবস্থাপনাকারী:' : 'Managed By:'}</span>
+                      <span className="text-slate-800 font-extrabold">{isBangla ? 'জনি দত্ত' : 'Jony Datta'}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-150">
+                      <span className="text-slate-500 font-bold">{isBangla ? 'যোগাযোগ করুন:' : 'Contact Us:'}</span>
+                      <div className="flex items-center gap-3">
+                        <a
+                          href="https://www.facebook.com/jonydatta247"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors cursor-pointer border border-blue-100 flex items-center justify-center"
+                          title="Facebook"
+                        >
+                          <Facebook className="h-4 w-4" />
+                        </a>
+                        <a
+                          href="https://www.linkedin.com/in/jonydatta"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 bg-sky-50 hover:bg-sky-100 text-sky-600 rounded-lg transition-colors cursor-pointer border border-sky-100 flex items-center justify-center"
+                          title="LinkedIn"
+                        >
+                          <Linkedin className="h-4 w-4" />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 leading-relaxed font-bold max-w-sm mx-auto">
+                    {isBangla 
+                      ? 'ডিজিটাল হিসাব খাতা আপনার বেচাকেনা, বাকির খাতা ও দৈনিক খরচ নিরাপদভাবে সহজে সংরক্ষণ করতে সাহায্য করে।' 
+                      : 'Digital Hisab Khata securely manages and tracks your sales, daily store expenses, and customer dues.'}
+                  </div>
+                </div>
+              </motion.div>
+            )}
           </motion.div>
         )}
         </AnimatePresence>
@@ -2958,131 +3404,171 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {/* Google Sign-In Option (Recommended & Secure) */}
-                      <button
-                        type="button"
-                        onClick={handleGoogleLogin}
-                        disabled={isSyncing}
-                        className="w-full py-3 px-4 bg-white hover:bg-slate-50 text-slate-700 font-extrabold text-xs rounded-xl border border-slate-200 shadow-3xs flex items-center justify-center gap-2 transition-all cursor-pointer h-11"
-                        id="google-signin-btn"
-                      >
-                        <svg className="h-4 w-4 mr-1 shrink-0" viewBox="0 0 24 24">
-                          <path
-                            fill="#EA4335"
-                            d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.48 14.99 1 12 1 7.35 1 3.37 3.65 1.39 7.56l3.89 3.02C6.18 7.55 8.87 5.04 12 5.04z"
-                          />
-                          <path
-                            fill="#4285F4"
-                            d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.43c-.28 1.44-1.1 2.66-2.33 3.48l3.61 2.8c2.11-1.95 3.78-4.83 3.78-8.43z"
-                          />
-                          <path
-                            fill="#FBBC05"
-                            d="M5.28 14.42c-.25-.75-.39-1.55-.39-2.42s.14-1.67.39-2.42L1.39 7.56C.5 9.36 0 11.4 0 13.5s.5 4.14 1.39 5.94l3.89-3.02z"
-                          />
-                          <path
-                            fill="#34A853"
-                            d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.61-2.8c-1.12.75-2.54 1.21-4.35 1.21-3.13 0-5.82-2.51-6.72-5.54l-3.89 3.02C3.37 20.35 7.35 23 12 23z"
-                          />
-                        </svg>
-                        <span>{isBangla ? 'গুগল অ্যাকাউন্ট দিয়ে লগইন (নিরাপদ)' : 'Sign in with Google (Secure)'}</span>
-                      </button>
-
-                      {isIframe && (
-                        <p className="text-[10px] text-amber-600 bg-amber-50 p-2.5 rounded-xl leading-normal font-bold border border-amber-100">
-                          ⚠️ {isBangla 
-                            ? 'আপনি প্রিভিউ ফ্রেমের ভেতরে আছেন। গুগল লগইন সফল করতে ওপরের "Open App" বাটনে ক্লিক করে নতুন ট্যাবে ওপেন করুন।' 
-                            : 'You are inside a preview frame. To log in with Google, click "Open App" at the top to open in a new tab.'}
-                        </p>
-                      )}
-
-                      <div className="relative flex py-1 items-center">
-                        <div className="flex-grow border-t border-slate-150"></div>
-                        <span className="flex-shrink mx-3 text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
-                          {isBangla ? 'অথবা পাসওয়ার্ড দিয়ে' : 'OR WITH PASSWORD'}
-                        </span>
-                        <div className="flex-grow border-t border-slate-150"></div>
+                      {/* Tabs */}
+                      <div className="flex border-b border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuthTab('google');
+                            setAuthError('');
+                          }}
+                          className={`flex-1 pb-2 text-xs font-bold border-b-2 transition-colors ${
+                            authTab === 'google'
+                              ? 'border-teal-600 text-teal-700'
+                              : 'border-transparent text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          {isBangla ? 'গুগল লগইন' : 'Google Login'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuthTab('email');
+                            setAuthError('');
+                          }}
+                          className={`flex-1 pb-2 text-xs font-bold border-b-2 transition-colors ${
+                            authTab === 'email'
+                              ? 'border-teal-600 text-teal-700'
+                              : 'border-transparent text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          {isBangla ? 'ইমেইল ও পাসওয়ার্ড' : 'Email & Password'}
+                        </button>
                       </div>
 
-                      {/* Primary Option: Email Password Form */}
-                      <div className="p-4 bg-slate-50 border border-slate-150 rounded-2xl space-y-3 shadow-3xs">
-                        <div className="flex border-b border-slate-200 pb-1.5 mb-2 gap-4">
+                      {authTab === 'google' ? (
+                        <div className="space-y-4 pt-1">
+                          {/* Google Sign-In Option (Recommended & Secure) */}
                           <button
                             type="button"
-                            onClick={() => setIsRegisterMode(false)}
-                            className={`text-xs font-black pb-1.5 px-1 border-b-2 transition-all cursor-pointer ${
-                              !isRegisterMode 
-                                ? 'text-teal-600 border-teal-500' 
-                                : 'text-slate-400 hover:text-slate-600 border-transparent'
-                            }`}
+                            onClick={handleGoogleLogin}
+                            disabled={isSyncing}
+                            className="w-full py-3 px-4 bg-white hover:bg-slate-50 text-slate-700 font-extrabold text-xs rounded-xl border border-slate-200 shadow-3xs flex items-center justify-center gap-2 transition-all cursor-pointer h-11"
+                            id="google-signin-btn"
                           >
-                            {isBangla ? '১. লগইন (Login)' : '1. Login'}
+                            <svg className="h-4 w-4 mr-1 shrink-0" viewBox="0 0 24 24">
+                              <path
+                                fill="#EA4335"
+                                d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.48 14.99 1 12 1 7.35 1 3.37 3.65 1.39 7.56l3.89 3.02C6.18 7.55 8.87 5.04 12 5.04z"
+                              />
+                              <path
+                                fill="#4285F4"
+                                d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.43c-.28 1.44-1.1 2.66-2.33 3.48l3.61 2.8c2.11-1.95 3.78-4.83 3.78-8.43z"
+                              />
+                              <path
+                                fill="#FBBC05"
+                                d="M5.28 14.42c-.25-.75-.39-1.55-.39-2.42s.14-1.67.39-2.42L1.39 7.56C.5 9.36 0 11.4 0 13.5s.5 4.14 1.39 5.94l3.89-3.02z"
+                              />
+                              <path
+                                fill="#34A853"
+                                d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.61-2.8c-1.12.75-2.54 1.21-4.35 1.21-3.13 0-5.82-2.51-6.72-5.54l-3.89 3.02C3.37 20.35 7.35 23 12 23z"
+                              />
+                            </svg>
+                            <span>{isBangla ? 'গুগল অ্যাকাউন্ট দিয়ে লগইন (নিরাপদ)' : 'Sign in with Google (Secure)'}</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setIsRegisterMode(true)}
-                            className={`text-xs font-black pb-1.5 px-1 border-b-2 transition-all cursor-pointer ${
-                              isRegisterMode 
-                                ? 'text-teal-600 border-teal-500' 
-                                : 'text-slate-400 hover:text-slate-600 border-transparent'
-                            }`}
-                          >
-                            {isBangla ? '২. নতুন অ্যাকাউন্ট (Register)' : '2. Create Account'}
-                          </button>
-                        </div>
 
-                        {/* Email Password Form */}
-                        <form onSubmit={isRegisterMode ? handleEmailRegister : handleEmailLogin} className="space-y-3">
+                          {isIframe && (
+                            <p className="text-[10px] text-amber-600 bg-amber-50 p-2.5 rounded-xl leading-normal font-bold border border-amber-100">
+                              ⚠️ {isBangla 
+                                ? 'আপনি প্রিভিউ ফ্রেমের ভেতরে আছেন। গুগল লগইন সফল করতে ওপরের "Open App" বাটনে ক্লিক করে নতুন ট্যাবে ওপেন করুন।' 
+                                : 'You are inside a preview frame. To log in with Google, click "Open App" at the top to open in a new tab.'}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <form onSubmit={handleEmailAuth} className="space-y-3 pt-1">
+                          {/* Segmented Control for Log In vs Register */}
+                          <div className="flex bg-slate-100 p-1 rounded-xl">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsRegisterMode(false);
+                                setAuthError('');
+                              }}
+                              className={`flex-1 py-1.5 text-center text-[11px] font-extrabold rounded-lg transition-all cursor-pointer ${
+                                !isRegisterMode
+                                  ? 'bg-white text-teal-800 shadow-3xs'
+                                  : 'text-slate-500 hover:text-slate-800'
+                              }`}
+                            >
+                              {isBangla ? 'লগইন করুন (Log In)' : 'Log In'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsRegisterMode(true);
+                                setAuthError('');
+                              }}
+                              className={`flex-1 py-1.5 text-center text-[11px] font-extrabold rounded-lg transition-all cursor-pointer ${
+                                isRegisterMode
+                                  ? 'bg-white text-teal-800 shadow-3xs'
+                                  : 'text-slate-500 hover:text-slate-800'
+                              }`}
+                            >
+                              {isBangla ? 'নতুন অ্যাকাউন্ট (Register)' : 'Register'}
+                            </button>
+                          </div>
+
                           <div>
-                            <label className="block text-[10px] font-black text-slate-500 mb-1">
-                              {isBangla ? 'ইমেইল আইডি' : 'Email ID'}
+                            <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                              {isBangla ? 'ইমেইল এড্রেস' : 'Email Address'}
                             </label>
                             <input
                               type="email"
                               required
-                              placeholder="your-email@example.com"
-                              value={userEmail}
-                              onChange={(e) => {
-                                setUserEmail(e.target.value);
-                                localStorage.setItem('hisab_khata_sync_email', e.target.value);
-                              }}
-                              className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold font-sans bg-white"
+                              value={authEmail}
+                              onChange={(e) => setAuthEmail(e.target.value)}
+                              placeholder="example@mail.com"
+                              className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-sans"
                             />
                           </div>
 
                           <div>
-                            <label className="block text-[10px] font-black text-slate-500 mb-1">
-                              {isBangla ? 'পাসওয়ার্ড (কমপক্ষে ৬ ডিজিট)' : 'Password (Min 6 digits)'}
+                            <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                              {isBangla ? 'পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)' : 'Password (min 6 chars)'}
                             </label>
                             <input
                               type="password"
                               required
+                              value={authPassword}
+                              onChange={(e) => setAuthPassword(e.target.value)}
                               placeholder="••••••"
-                              value={syncPassword}
-                              onChange={(e) => setSyncPassword(e.target.value)}
-                              className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold font-sans bg-white"
+                              className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-sans"
                             />
                           </div>
 
-                          <button
-                            type="submit"
-                            disabled={isSyncing}
-                            className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-400 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
-                          >
-                            {isSyncing ? (
-                              <span className="flex items-center justify-center gap-1">
-                                <span className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                <span>{isBangla ? 'লোড হচ্ছে...' : 'Loading...'}</span>
-                              </span>
-                            ) : (
+                          {authError && (
+                            <div className="text-[11px] text-rose-600 font-bold bg-rose-50 p-2.5 rounded-lg border border-rose-100 whitespace-pre-line leading-relaxed">
+                              ⚠️ {authError}
+                            </div>
+                          )}
+
+                          <div className="flex flex-col gap-2 pt-1">
+                            <button
+                              type="submit"
+                              disabled={isSyncing}
+                              className="w-full py-2 px-4 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-400 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer h-10 flex items-center justify-center gap-1.5"
+                            >
                               <span>
                                 {isRegisterMode 
-                                  ? (isBangla ? 'নিবন্ধন ও সিঙ্ক চালু করুন' : 'Register & Enable Sync') 
-                                  : (isBangla ? 'লগইন ও সিঙ্ক চালু করুন' : 'Login & Enable Sync')}
+                                  ? (isBangla ? 'নতুন অ্যাকাউন্ট খুলুন' : 'Register New Account') 
+                                  : (isBangla ? 'লগইন করুন' : 'Log In')
+                                }
                               </span>
+                            </button>
+
+                            {!isRegisterMode && (
+                              <button
+                                type="button"
+                                onClick={handleForgotPassword}
+                                className="text-center text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer py-1"
+                              >
+                                {isBangla ? 'পাসওয়ার্ড ভুলে গেছেন? রিসেট লিংক পাঠান' : 'Forgot Password? Send Reset Link'}
+                              </button>
                             )}
-                          </button>
+                          </div>
                         </form>
-                      </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -4041,10 +4527,69 @@ export default function App() {
       <footer className="bg-white border-t border-slate-200/80 py-5 text-center mt-auto">
         <p className="text-xs text-slate-400">
           {isBangla 
-            ? 'ডিজিটাল হিসাব খাতা © ২০২৬ • ব্যবস্থাপনাকারী: জনি দত্ত (jonydatta222@gmail.com)' 
-            : 'Digital Hisab Khata © 2026 • Managed by: Jony Datta (jonydatta222@gmail.com)'}
+            ? 'ডিজিটাল হিসাব খাতা © ২০২৬ • ব্যবস্থাপনাকারী: জনি দত্ত' 
+            : 'Digital Hisab Khata © 2026 • Managed by: Jony Datta'}
         </p>
       </footer>
+
+      {/* --- CUSTOM CONFIRMATION MODAL --- */}
+      <AnimatePresence>
+        {confirmModal && confirmModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setConfirmModal(null)}
+              className="fixed inset-0 bg-black shadow-lg"
+            />
+
+            {/* Modal Box */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              className="bg-white rounded-2xl w-full max-w-sm shadow-2xl relative z-10 overflow-hidden border border-slate-100 p-6 flex flex-col gap-4"
+            >
+              <div className="flex items-start gap-3">
+                <span className="p-2.5 bg-rose-50 text-rose-600 rounded-xl shrink-0">
+                  <RotateCcw className="h-5 w-5 animate-[spin_3s_linear_infinite]" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 leading-none">
+                    {confirmModal.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                    {confirmModal.message}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmModal(null)}
+                  className="px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-black text-xs rounded-xl transition-all cursor-pointer shadow-3xs"
+                >
+                  {isBangla ? 'না' : 'No'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    confirmModal.onConfirm();
+                    setConfirmModal(null);
+                  }}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer shadow-sm"
+                >
+                  {isBangla ? 'হ্যাঁ' : 'Yes'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
