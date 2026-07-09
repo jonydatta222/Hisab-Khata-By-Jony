@@ -255,7 +255,11 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
                           placeholder={isBangla ? '৳ জমা' : '৳ Deposit'}
                           value={depositAmount}
                           onChange={(e) => {
-                            setDepositAmount(e.target.value);
+                            let val = e.target.value;
+                            if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                              val = val.replace(/^0+/, '');
+                            }
+                            setDepositAmount(val);
                             setErrorMsg('');
                           }}
                           className="flex-1 text-[11px] p-1 rounded border border-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"

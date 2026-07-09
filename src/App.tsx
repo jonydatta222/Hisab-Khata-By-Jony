@@ -19,6 +19,8 @@ import {
   FileUp,
   RotateCcw,
   PlusCircle,
+  Smartphone,
+  FileJson,
   Clock,
   Sparkles,
   Info,
@@ -178,6 +180,8 @@ export default function App() {
   });
 
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [isRestoreChoiceModalOpen, setIsRestoreChoiceModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAuthHelp, setShowAuthHelp] = useState(false);
   const [currentNavTab, setCurrentNavTab] = useState<'home' | 'info' | 'monthly' | 'history' | 'settings'>('home');
   const [showAllHistoryTxs, setShowAllHistoryTxs] = useState(false);
@@ -194,6 +198,85 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [authError, setAuthError] = useState('');
+
+  const [syncConflictData, setSyncConflictData] = useState<{
+    email: string;
+    cloudData: any;
+    localData: {
+      transactions: any[];
+      expenses: any[];
+      outOfStockItems: any[];
+      productRates: any[];
+      shopName: string;
+      lastUpdated: number;
+    };
+  } | null>(null);
+
+  const resolveSyncConflict = async (decision: 'cloud' | 'local') => {
+    if (!syncConflictData) return;
+    const { email, cloudData, localData } = syncConflictData;
+    setIsSyncing(true);
+    setSyncMessage(isBangla ? 'সিঙ্ক সিদ্ধান্ত প্রয়োগ করা হচ্ছে...' : 'Applying sync decision...');
+    
+    try {
+      if (decision === 'cloud') {
+        // Restore from cloud
+        setTransactions(cloudData.transactions || []);
+        setExpenses(cloudData.expenses || []);
+        setOutOfStockItems(cloudData.outOfStockItems || []);
+        setProductRates(cloudData.productRates || []);
+        if (cloudData.shopName) {
+          setShopName(cloudData.shopName);
+          localStorage.setItem('hisab_khata_shop_name', cloudData.shopName);
+        }
+        localStorage.setItem('hisab_khata_transactions', JSON.stringify(cloudData.transactions || []));
+        localStorage.setItem('hisab_khata_expenses', JSON.stringify(cloudData.expenses || []));
+        localStorage.setItem('hisab_khata_out_of_stock', JSON.stringify(cloudData.outOfStockItems || []));
+        localStorage.setItem('hisab_khata_product_rates', JSON.stringify(cloudData.productRates || []));
+        localStorage.setItem('hisab_khata_last_updated', String(cloudData.updatedAt || Date.now()));
+        
+        setIsSyncActive(true);
+        localStorage.setItem('hisab_khata_sync', 'true');
+        localStorage.setItem('hisab_khata_sync_email', email);
+        setUserEmail(email);
+        
+        showToast(
+          isBangla 
+            ? 'ক্লাউড থেকে সর্বশেষ ডাটা সফলভাবে ডাউনলোড করা হয়েছে!' 
+            : 'Latest data successfully downloaded from cloud!'
+        );
+      } else {
+        // Upload local to cloud (overwriting cloud)
+        await uploadLedgerToCloud(
+          email, 
+          localData.transactions, 
+          localData.expenses, 
+          localData.shopName, 
+          localData.outOfStockItems, 
+          localData.productRates
+        );
+        localStorage.setItem('hisab_khata_last_updated', String(Date.now()));
+        
+        setIsSyncActive(true);
+        localStorage.setItem('hisab_khata_sync', 'true');
+        localStorage.setItem('hisab_khata_sync_email', email);
+        setUserEmail(email);
+
+        showToast(
+          isBangla 
+            ? 'ক্লাউডে স্থানীয় ডাটা সফলভাবে আপলোড করা হয়েছে!' 
+            : 'Local data successfully uploaded to cloud!'
+        );
+      }
+      setSyncConflictData(null);
+    } catch (e) {
+      console.error('Failed to resolve sync conflict', e);
+      showToast(isBangla ? 'সিঙ্ক দ্বন্দ্ব সমাধান করতে ব্যর্থ হয়েছে!' : 'Failed to resolve sync conflict!');
+    } finally {
+      setIsSyncing(false);
+      setSyncMessage('');
+    }
+  };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -310,7 +393,7 @@ export default function App() {
   const [editingRateId, setEditingRateId] = useState<string | null>(null);
   const [editRateName, setEditRateName] = useState('');
   const [editRatePrice, setEditRatePrice] = useState('');
-  const [activeInfoTab, setActiveInfoTab] = useState<'oos' | 'rates'>('oos');
+  const [activeInfoTab, setActiveInfoTab] = useState<'oos' | 'rates' | 'dues' | 'expenses'>('oos');
   const [settingsSubTab, setSettingsSubTab] = useState<'store' | 'sync' | 'about'>('store');
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -698,27 +781,58 @@ export default function App() {
         }
 
         const cloudData = await downloadLedgerFromCloud(emailToUse);
-        setIsSyncActive(true);
-        localStorage.setItem('hisab_khata_sync', 'true');
-        localStorage.setItem('hisab_khata_sync_email', emailToUse);
-        setUserEmail(emailToUse);
         
+        // Read actual synchronous local values directly from localStorage to prevent any React state stales/closures
+        const localTxsStr = localStorage.getItem('hisab_khata_transactions');
+        const localExsStr = localStorage.getItem('hisab_khata_expenses');
+        const localOosStr = localStorage.getItem('hisab_khata_out_of_stock');
+        const localRatesStr = localStorage.getItem('hisab_khata_product_rates');
+        const localTxs = localTxsStr ? JSON.parse(localTxsStr) : [];
+        const localExs = localExsStr ? JSON.parse(localExsStr) : [];
+        const localOos = localOosStr ? JSON.parse(localOosStr) : [];
+        const localRates = localRatesStr ? JSON.parse(localRatesStr) : [];
+        const localShopName = localStorage.getItem('hisab_khata_shop_name') || shopName;
+        const localUpdated = localStorage.getItem('hisab_khata_last_updated');
+        const localUpdateTime = localUpdated ? parseInt(localUpdated, 10) : 0;
+
         if (cloudData) {
-          const localUpdated = localStorage.getItem('hisab_khata_last_updated');
-          const localUpdateTime = localUpdated ? parseInt(localUpdated, 10) : 0;
-          const cloudUpdateTime = cloudData.updatedAt || 0;
-          
-          // Read actual synchronous local values directly from localStorage to prevent any React state stales/closures
-          const localTxsStr = localStorage.getItem('hisab_khata_transactions');
-          const localExsStr = localStorage.getItem('hisab_khata_expenses');
-          const localTxs = localTxsStr ? JSON.parse(localTxsStr) : [];
-          const localExs = localExsStr ? JSON.parse(localExsStr) : [];
-          
-          const isLocalEmpty = localTxs.length === 0 && localExs.length === 0;
           const isCloudNotEmpty = (cloudData.transactions && cloudData.transactions.length > 0) || 
                                   (cloudData.expenses && cloudData.expenses.length > 0) ||
                                   (cloudData.outOfStockItems && cloudData.outOfStockItems.length > 0) ||
                                   (cloudData.productRates && cloudData.productRates.length > 0);
+          
+          const isLocalNotEmpty = localTxs.length > 0 || 
+                                  localExs.length > 0 || 
+                                  localOos.length > 0 || 
+                                  localRates.length > 0;
+
+          // Check for Sync Conflict:
+          // If BOTH local database and cloud database contain some data, we have a sync conflict.
+          // In this case, we present a modal to let the user choose.
+          if (isLocalNotEmpty && isCloudNotEmpty) {
+            setSyncConflictData({
+              email: emailToUse,
+              cloudData,
+              localData: {
+                transactions: localTxs,
+                expenses: localExs,
+                outOfStockItems: localOos,
+                productRates: localRates,
+                shopName: localShopName,
+                lastUpdated: localUpdateTime
+              }
+            });
+            setIsSyncModalOpen(false); // Close standard settings sync modal
+            return;
+          }
+          
+          const isLocalEmpty = localTxs.length === 0 && localExs.length === 0;
+          const cloudUpdateTime = cloudData.updatedAt || 0;
+
+          setIsSyncActive(true);
+          localStorage.setItem('hisab_khata_sync', 'true');
+          localStorage.setItem('hisab_khata_sync_email', emailToUse);
+          setUserEmail(emailToUse);
 
           if (cloudUpdateTime > localUpdateTime || (isLocalEmpty && isCloudNotEmpty)) {
             setTransactions(cloudData.transactions || []);
@@ -741,13 +855,6 @@ export default function App() {
                 : 'Latest data successfully downloaded from cloud!'
             );
           } else {
-            // Read latest local values to avoid uploading stale state variables
-            const localOosStr = localStorage.getItem('hisab_khata_out_of_stock');
-            const localRatesStr = localStorage.getItem('hisab_khata_product_rates');
-            const localOos = localOosStr ? JSON.parse(localOosStr) : [];
-            const localRates = localRatesStr ? JSON.parse(localRatesStr) : [];
-            const localShopName = localStorage.getItem('hisab_khata_shop_name') || shopName;
-
             await uploadLedgerToCloud(emailToUse, localTxs, localExs, localShopName, localOos, localRates);
             localStorage.setItem('hisab_khata_last_updated', String(Date.now()));
             showToast(
@@ -757,16 +864,11 @@ export default function App() {
             );
           }
         } else {
-          // Read latest local values to avoid uploading stale state variables
-          const localTxsStr = localStorage.getItem('hisab_khata_transactions');
-          const localExsStr = localStorage.getItem('hisab_khata_expenses');
-          const localOosStr = localStorage.getItem('hisab_khata_out_of_stock');
-          const localRatesStr = localStorage.getItem('hisab_khata_product_rates');
-          const localTxs = localTxsStr ? JSON.parse(localTxsStr) : [];
-          const localExs = localExsStr ? JSON.parse(localExsStr) : [];
-          const localOos = localOosStr ? JSON.parse(localOosStr) : [];
-          const localRates = localRatesStr ? JSON.parse(localRatesStr) : [];
-          const localShopName = localStorage.getItem('hisab_khata_shop_name') || shopName;
+          // Cloud is completely empty - safe to upload everything directly
+          setIsSyncActive(true);
+          localStorage.setItem('hisab_khata_sync', 'true');
+          localStorage.setItem('hisab_khata_sync_email', emailToUse);
+          setUserEmail(emailToUse);
 
           await uploadLedgerToCloud(emailToUse, localTxs, localExs, localShopName, localOos, localRates);
           localStorage.setItem('hisab_khata_last_updated', String(Date.now()));
@@ -1368,7 +1470,11 @@ export default function App() {
       creator: userEmail
     };
 
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const backupStr = JSON.stringify(backupData, null, 2);
+    // Save to local device memory (localStorage)
+    localStorage.setItem('hisab_khata_local_memory_backup', backupStr);
+
+    const blob = new Blob([backupStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1377,7 +1483,45 @@ export default function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast(isBangla ? 'ব্যাকআপ ফাইলটি ডাউনলোড হয়েছে!' : 'Backup downloaded successfully!');
+    showToast(isBangla ? 'ফোনের মেমোরিতে লোকাল ব্যাকআপ সেভ হয়েছে এবং ফাইল ডাউনলোড শুরু হয়েছে!' : 'Backup saved in phone memory and download started!');
+  };
+
+  const handleImportClick = () => {
+    const localBackup = localStorage.getItem('hisab_khata_local_memory_backup');
+    if (localBackup) {
+      setIsRestoreChoiceModalOpen(true);
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleRestoreFromLocalMemory = () => {
+    const localBackupStr = localStorage.getItem('hisab_khata_local_memory_backup');
+    if (!localBackupStr) return;
+    try {
+      const parsed = JSON.parse(localBackupStr);
+      if (Array.isArray(parsed.transactions) && Array.isArray(parsed.expenses)) {
+        setTransactions(parsed.transactions);
+        setExpenses(parsed.expenses);
+        const oos = Array.isArray(parsed.outOfStockItems) ? parsed.outOfStockItems : [];
+        const rates = Array.isArray(parsed.productRates) ? parsed.productRates : [];
+        setOutOfStockItems(oos);
+        setProductRates(rates);
+        
+        localStorage.setItem('hisab_khata_transactions', JSON.stringify(parsed.transactions));
+        localStorage.setItem('hisab_khata_expenses', JSON.stringify(parsed.expenses));
+        localStorage.setItem('hisab_khata_out_of_stock', JSON.stringify(oos));
+        localStorage.setItem('hisab_khata_product_rates', JSON.stringify(rates));
+        
+        showToast(isBangla ? 'ফোনের মেমোরি ব্যাকআপ থেকে খাতা সফলভাবে রিস্টোর হয়েছে!' : 'Backup restored from phone memory successfully!');
+        triggerCloudSync(parsed.transactions, parsed.expenses, shopName, userEmail, oos, rates);
+        setIsRestoreChoiceModalOpen(false);
+      } else {
+        alert(isBangla ? 'ভুল ফরম্যাট! সঠিক ব্যাকআপ ডাটা পাওয়া যায়নি।' : 'Invalid backup format!');
+      }
+    } catch (err) {
+      alert(isBangla ? 'ব্যাকআপ ডাটা পড়তে ত্রুটি হয়েছে!' : 'Error parsing backup data!');
+    }
   };
 
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1403,6 +1547,7 @@ export default function App() {
           
           showToast(isBangla ? 'ব্যাকআপ সফলভাবে রিস্টোর হয়েছে!' : 'Backup restored successfully!');
           triggerCloudSync(parsed.transactions, parsed.expenses, shopName, userEmail, oos, rates);
+          setIsRestoreChoiceModalOpen(false);
         } else {
           alert(isBangla ? 'ভুল ফরম্যাট! সঠিক ব্যাকআপ ফাইল নির্বাচন করুন।' : 'Invalid backup format!');
         }
@@ -1756,7 +1901,13 @@ export default function App() {
                         required
                         placeholder="৳ ০.০০"
                         value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
+                        onChange={(e) => {
+                          let val = e.target.value;
+                          if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                            val = val.replace(/^0+/, '');
+                          }
+                          setAmount(val);
+                        }}
                         className="w-full text-base px-3 py-2.5 rounded-xl border-2 border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600 bg-teal-50/20 transition-all font-sans font-black text-slate-900 h-12"
                         id="amount-input"
                       />
@@ -1872,55 +2023,6 @@ export default function App() {
                 />
 
               </div>
-
-              {/* Tab Selector Capsule */}
-              <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 flex items-center gap-1.5 shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('dues')}
-                  className={`flex-1 py-2.5 text-xs font-extrabold rounded-xl transition-all text-center cursor-pointer ${
-                    activeTab === 'dues'
-                      ? 'bg-white text-rose-800 shadow-sm border border-slate-200/40'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {isBangla ? 'বাকি খাতা (Dues)' : 'Dues'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('expenses')}
-                  className={`flex-1 py-2.5 text-xs font-extrabold rounded-xl transition-all text-center cursor-pointer ${
-                    activeTab === 'expenses'
-                      ? 'bg-white text-amber-800 shadow-sm border border-slate-200/40'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {isBangla ? 'খরচ (Expenses)' : 'Expenses'}
-                </button>
-              </div>
-
-              {/* Active List Panel Content */}
-              <div className="relative">
-                {activeTab === 'dues' && (
-                  <DueList
-                    dueList={customerDues}
-                    isBangla={isBangla}
-                    onDeposit={handleDueDeposit}
-                    onDelete={handleDeleteCustomerDues}
-                    onRename={handleRenameCustomerDues}
-                  />
-                )}
-
-                {activeTab === 'expenses' && (
-                  <ExpenseList
-                    expenses={todayExpenses}
-                    isBangla={isBangla}
-                    onDelete={handleDeleteExpense}
-                    onUpdate={handleUpdateExpense}
-                    todayExpenseTotal={todayExpenseTotal}
-                  />
-                )}
-              </div>
           </motion.div>
         )}
 
@@ -1943,28 +2045,28 @@ export default function App() {
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
                   {isBangla 
-                    ? 'দোকানের ঘাটতি পণ্য (মাল নেই) এবং বিভিন্ন মালের পাইকারি কেনা দামের তালিকা।' 
-                    : 'List of out of stock goods and product wholesale/buying rates.'}
+                    ? 'দোকানের ঘাটতি পণ্য (মাল নেই), পণ্যের রেট তালিকা, গ্রাহকের বকেয়া খাতা এবং খরচের বিবরণী।' 
+                    : 'List of out of stock goods, product rates, customer outstanding dues, and store expenses.'}
                 </p>
               </div>
             </div>
 
-            {/* Custom Dual Sub-Tabs Selector Bar */}
-            <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 flex items-center gap-1.5 shadow-2xs max-w-xl mx-auto w-full">
+            {/* Custom Quad Sub-Tabs Selector Bar */}
+            <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 grid grid-cols-2 md:grid-cols-4 gap-1.5 shadow-2xs max-w-4xl mx-auto w-full">
               <button
                 type="button"
                 onClick={() => {
                   setActiveInfoTab('oos');
                   setShowAllOos(false);
                 }}
-                className={`flex-1 py-3 px-4 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-2 ${
+                className={`py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
                   activeInfoTab === 'oos'
-                    ? 'bg-white text-amber-800 shadow-sm border border-slate-200/40'
+                    ? 'bg-white text-amber-850 shadow-sm border border-slate-200/40'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
                 <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                <span>{isBangla ? 'শর্ট/নেই মাল এর তালিকা' : 'Short/Out of Stock'}</span>
+                <span className="truncate">{isBangla ? 'শর্ট/নেই মাল' : 'Short/No Goods'}</span>
               </button>
               <button
                 type="button"
@@ -1972,14 +2074,42 @@ export default function App() {
                   setActiveInfoTab('rates');
                   setShowAllRates(false);
                 }}
-                className={`flex-1 py-3 px-4 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-2 ${
+                className={`py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
                   activeInfoTab === 'rates'
-                    ? 'bg-white text-sky-800 shadow-sm border border-slate-200/40'
+                    ? 'bg-white text-sky-850 shadow-sm border border-slate-200/40'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
                 <Coins className="h-4 w-4 text-sky-600 shrink-0" />
-                <span>{isBangla ? 'পণ্যের রেট তালিকা' : 'Product Rate List'}</span>
+                <span className="truncate">{isBangla ? 'পণ্যের রেট' : 'Product Rates'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInfoTab('dues');
+                }}
+                className={`py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+                  activeInfoTab === 'dues'
+                    ? 'bg-white text-rose-850 shadow-sm border border-slate-200/40'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <User className="h-4 w-4 text-rose-600 shrink-0" />
+                <span className="truncate">{isBangla ? 'বাকির লিস্ট' : 'Due List'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveInfoTab('expenses');
+                }}
+                className={`py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+                  activeInfoTab === 'expenses'
+                    ? 'bg-white text-emerald-850 shadow-sm border border-slate-200/40'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Wallet className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span className="truncate">{isBangla ? 'খরচের লিস্ট' : 'Expense List'}</span>
               </button>
             </div>
 
@@ -1987,7 +2117,7 @@ export default function App() {
             <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs flex flex-col min-h-[460px]">
               
               {/* Header inside Card (Title + Add Button) */}
-              {activeInfoTab === 'oos' ? (
+              {activeInfoTab === 'oos' && (
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="p-1.5 bg-amber-50 rounded-lg text-amber-700 shrink-0">
@@ -2015,7 +2145,9 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              ) : (
+              )}
+
+              {activeInfoTab === 'rates' && (
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="p-1.5 bg-sky-50 rounded-lg text-sky-700 shrink-0">
@@ -2045,8 +2177,61 @@ export default function App() {
                 </div>
               )}
 
+              {activeInfoTab === 'dues' && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="p-1.5 bg-rose-50 rounded-lg text-rose-700 shrink-0">
+                      <User className="h-4 w-4" />
+                    </span>
+                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                      {isBangla ? 'বাকির খাতা ও বকেয়া তালিকা' : 'Outstanding Due List'}
+                    </h3>
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-extrabold bg-rose-100 text-rose-850 px-2.5 py-1 rounded-full font-sans">
+                        {isBangla ? toBanglaNumber(customerDues.length) : customerDues.length}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-bold">
+                        {isBangla ? 'জন ক্রেতা' : 'customers'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeInfoTab === 'expenses' && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="p-1.5 bg-emerald-50 rounded-lg text-emerald-700 shrink-0">
+                      <Wallet className="h-4 w-4" />
+                    </span>
+                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                      {isBangla ? 'খরচের তালিকা ও খতিয়ান' : 'Expense Ledger List'}
+                    </h3>
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-extrabold bg-emerald-100 text-emerald-850 px-2.5 py-1 rounded-full font-sans">
+                        {isBangla ? toBanglaNumber(todayExpenses.length) : todayExpenses.length}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-bold">
+                        {isBangla ? 'টি খতিয়ান' : 'entries'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setIsExpenseModalOpen(true)}
+                      className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-emerald-700 to-emerald-800 hover:from-emerald-800 hover:to-emerald-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
+                    >
+                      <Plus className="h-3.5 w-3.5 stroke-[3]" />
+                      <span>{isBangla ? 'খরচ যোগ' : 'Add Expense'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Tab Specific Content */}
-              {activeInfoTab === 'oos' ? (
+              {activeInfoTab === 'oos' && (
                 <div className="flex-1 flex flex-col justify-between">
                   {/* Local Search for Out Of Stock */}
                   <div className="mb-4">
@@ -2223,7 +2408,9 @@ export default function App() {
                     })()}
                   </div>
                 </div>
-              ) : (
+              )}
+
+              {activeInfoTab === 'rates' && (
                 <div className="flex-1 flex flex-col justify-between">
                   {/* Local Search for Product Rates */}
                   <div className="mb-4">
@@ -2302,7 +2489,13 @@ export default function App() {
                                           <input
                                             type="number"
                                             value={editRatePrice}
-                                            onChange={(e) => setEditRatePrice(e.target.value)}
+                                            onChange={(e) => {
+                                              let val = e.target.value;
+                                              if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                                                val = val.replace(/^0+/, '');
+                                              }
+                                              setEditRatePrice(val);
+                                            }}
                                             className="w-full text-xs p-1.5 rounded-lg border border-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-bold text-slate-800"
                                           />
                                         </div>
@@ -2424,6 +2617,30 @@ export default function App() {
                       );
                     })()}
                   </div>
+                </div>
+              )}
+
+              {activeInfoTab === 'dues' && (
+                <div className="flex-1 flex flex-col justify-between">
+                  <DueList
+                    dueList={customerDues}
+                    isBangla={isBangla}
+                    onDeposit={handleDueDeposit}
+                    onDelete={handleDeleteCustomerDues}
+                    onRename={handleRenameCustomerDues}
+                  />
+                </div>
+              )}
+
+              {activeInfoTab === 'expenses' && (
+                <div className="flex-1 flex flex-col justify-between">
+                  <ExpenseList
+                    expenses={todayExpenses}
+                    isBangla={isBangla}
+                    onDelete={handleDeleteExpense}
+                    onUpdate={handleUpdateExpense}
+                    todayExpenseTotal={todayExpenseTotal}
+                  />
                 </div>
               )}
 
@@ -3017,7 +3234,7 @@ export default function App() {
                 {/* Backup & Hard Reset Card */}
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
-                    {isBangla ? 'ডাটা সংরক্ষণ ও রিসেট' : 'Backup & Hard Reset'}
+                    {isBangla ? 'ডেটা সংরক্ষণ করুন' : 'Data Backup & Restore'}
                   </h3>
 
                   <div className="grid grid-cols-2 gap-2.5">
@@ -3030,26 +3247,23 @@ export default function App() {
                       <span>{isBangla ? 'ডাউনলোড খাতা' : 'Download JSON'}</span>
                     </button>
 
-                    <label className="py-2.5 px-3 border border-slate-200 bg-white rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors">
+                    <button
+                      type="button"
+                      onClick={handleImportClick}
+                      className="py-2.5 px-3 border border-slate-200 bg-white rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                    >
                       <FileUp className="h-4 w-4 text-indigo-600" />
                       <span>{isBangla ? 'আপলোড খাতা' : 'Upload JSON'}</span>
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={handleImportBackup}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={handleHardReset}
-                    className="w-full py-2.5 bg-rose-50/50 hover:bg-rose-50 border border-rose-100 hover:border-rose-200 text-rose-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    <span>{isBangla ? 'খাতা সম্পূর্ণ খালি করুন (Reset)' : 'Reset All Ledger Data'}</span>
-                  </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".json"
+                      onChange={handleImportBackup}
+                      className="hidden"
+                    />
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -3107,7 +3321,7 @@ export default function App() {
                         </div>
 
                         {isSyncActive && (
-                          <div className="grid grid-cols-3 gap-2 mt-1">
+                          <div className="grid grid-cols-2 gap-2 mt-1">
                             <button
                               type="button"
                               onClick={() => triggerCloudSync(transactions, expenses, shopName, currentUser.email || '')}
@@ -3125,45 +3339,6 @@ export default function App() {
                             >
                               <FileDown className="h-4 w-4 text-indigo-600" />
                               <span className="text-center">{isBangla ? 'ব্যাকআপ রিস্টোর' : 'Restore Backup'}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setConfirmModal({
-                                  isOpen: true,
-                                  title: isBangla ? 'ব্যাকআপ রিসেট ও ওভাররাইট করুন?' : 'Reset & Overwrite Backup?',
-                                  message: isBangla 
-                                    ? '⚠️ আপনি কি পূর্বের সকল ক্লাউড ব্যাকআপ মুছে বর্তমান ডিভাইসের ডাটা দিয়ে একদম নতুন করে ব্যাকআপ দিতে চান?'
-                                    : '⚠️ Are you sure you want to overwrite previous cloud backup with current device data?',
-                                  onConfirm: async () => {
-                                    setIsSyncing(true);
-                                    setSyncMessage(isBangla ? 'ক্লাউড ব্যাকআপ রিসেট ও আপডেট হচ্ছে...' : 'Resetting and overwriting cloud backup...');
-                                    try {
-                                      await uploadLedgerToCloud(
-                                        currentUser.email || userEmail,
-                                        transactions,
-                                        expenses,
-                                        shopName,
-                                        outOfStockItems,
-                                        productRates
-                                      );
-                                      localStorage.setItem('hisab_khata_last_updated', String(Date.now()));
-                                      showToast(isBangla ? 'পূর্বের ক্লাউড ব্যাকআপ সফলভাবে পরিবর্তন করা হয়েছে!' : 'Successfully reset and overwrote cloud backup!');
-                                    } catch (error) {
-                                      console.error('Failed to reset cloud backup:', error);
-                                      showToast(isBangla ? 'ব্যাকআপ রিসেট করতে ব্যর্থ হয়েছে!' : 'Failed to reset backup!');
-                                    } finally {
-                                      setIsSyncing(false);
-                                      setSyncMessage('');
-                                    }
-                                  }
-                                });
-                              }}
-                              disabled={isSyncing}
-                              className="py-2 px-1 bg-rose-50/50 hover:bg-rose-50 border border-rose-100 rounded-xl text-[10px] sm:text-xs font-bold text-rose-700 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-3xs transition-all disabled:opacity-50"
-                            >
-                              <RotateCcw className="h-4 w-4 text-rose-600" />
-                              <span className="text-center">{isBangla ? 'ব্যাকআপ রিসেট' : 'Reset Backup'}</span>
                             </button>
                           </div>
                         )}
@@ -3643,6 +3818,165 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* --- SYNC CONFLICT RESOLUTION MODAL OVERLAY --- */}
+      <AnimatePresence>
+        {syncConflictData && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSyncConflictData(null)}
+              className="fixed inset-0 bg-black"
+            />
+
+            {/* Modal Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl p-6 border border-slate-100 overflow-hidden z-10 flex flex-col max-h-[90vh]"
+              id="sync-conflict-modal-box"
+            >
+              <div className="flex items-center gap-2 pb-3 mb-4 border-b border-slate-150 shrink-0">
+                <AlertCircle className="h-6 w-6 text-amber-500 shrink-0" />
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">
+                    {isBangla ? 'সিঙ্ক দ্বন্দ্ব সনাক্ত করা হয়েছে!' : 'Sync Conflict Detected!'}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {isBangla 
+                      ? 'ডিভাইস এবং ক্লাউড অ্যাকাউন্টে ভিন্ন ডাটা পাওয়া গেছে।' 
+                      : 'Different data found on device and cloud account.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+                <p className="text-slate-600 font-bold leading-relaxed">
+                  {isBangla 
+                    ? `আপনি ${syncConflictData.email} অ্যাকাউন্টে সিঙ্ক সচল করছেন। আপনার এই ডিভাইস এবং ফায়ারবেস ক্লাউডে আলাদা হিসাব সংরক্ষণ করা রয়েছে। তথ্য হারিয়ে যাওয়া রোধ করতে অনুগ্রহ করে নিচের যেকোনো একটি অপশন বেছে নিন:` 
+                    : `You are enabling sync for ${syncConflictData.email}. Different store ledgers are saved on this device and on Firebase Cloud. To prevent data loss, please select which backup to preserve:`}
+                </p>
+
+                {/* Grid Comparison */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                  
+                  {/* Local Device Data Card */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
+                    <div>
+                      <span className="inline-block px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-700 font-extrabold text-[10px] uppercase tracking-wider mb-2.5">
+                        {isBangla ? '১. লোকাল ডিভাইস' : '1. Local Device'}
+                      </span>
+                      <ul className="space-y-1.5 font-bold text-slate-700">
+                        <li className="flex justify-between">
+                          <span className="text-slate-400 font-medium">{isBangla ? 'মোট বেচাকেনা:' : 'Sales:'}</span>
+                          <span className="font-sans text-slate-900">{isBangla ? toBanglaNumber(syncConflictData.localData.transactions.length) : syncConflictData.localData.transactions.length}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span className="text-slate-400 font-medium">{isBangla ? 'মোট খরচ:' : 'Expenses:'}</span>
+                          <span className="font-sans text-slate-900">{isBangla ? toBanglaNumber(syncConflictData.localData.expenses.length) : syncConflictData.localData.expenses.length}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span className="text-slate-400 font-medium">{isBangla ? 'মালের রেট:' : 'Product Rates:'}</span>
+                          <span className="font-sans text-slate-900">{isBangla ? toBanglaNumber(syncConflictData.localData.productRates.length) : syncConflictData.localData.productRates.length}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span className="text-slate-400 font-medium">{isBangla ? 'অর্ডার স্টক আউট:' : 'Out of Stock:'}</span>
+                          <span className="font-sans text-slate-900">{isBangla ? toBanglaNumber(syncConflictData.localData.outOfStockItems.length) : syncConflictData.localData.outOfStockItems.length}</span>
+                        </li>
+                      </ul>
+                    </div>
+                    
+                    <div className="mt-4 pt-2.5 border-t border-slate-200/50 text-[10px] text-slate-400 flex flex-col font-medium">
+                      <span>{isBangla ? 'সর্বশেষ আপডেট:' : 'Last Updated:'}</span>
+                      <span className="text-slate-600 font-bold mt-0.5">
+                        {syncConflictData.localData.lastUpdated 
+                          ? new Date(syncConflictData.localData.lastUpdated).toLocaleDateString(isBangla ? 'bn-BD' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' }) + ' - ' + new Date(syncConflictData.localData.lastUpdated).toLocaleTimeString(isBangla ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })
+                          : (isBangla ? 'কখনো না' : 'Never')
+                        }
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Cloud Backup Data Card */}
+                  <div className="p-4 rounded-xl border border-teal-150 bg-teal-50/20 flex flex-col justify-between">
+                    <div>
+                      <span className="inline-block px-2 py-0.5 rounded-md bg-teal-50 border border-teal-200 text-teal-800 font-extrabold text-[10px] uppercase tracking-wider mb-2.5">
+                        {isBangla ? '২. ক্লাউড ব্যাকআপ' : '2. Cloud Backup'}
+                      </span>
+                      <ul className="space-y-1.5 font-bold text-slate-700">
+                        <li className="flex justify-between">
+                          <span className="text-slate-400 font-medium">{isBangla ? 'মোট বেচাকেনা:' : 'Sales:'}</span>
+                          <span className="font-sans text-slate-900">{isBangla ? toBanglaNumber(syncConflictData.cloudData.transactions?.length || 0) : (syncConflictData.cloudData.transactions?.length || 0)}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span className="text-slate-400 font-medium">{isBangla ? 'মোট খরচ:' : 'Expenses:'}</span>
+                          <span className="font-sans text-slate-900">{isBangla ? toBanglaNumber(syncConflictData.cloudData.expenses?.length || 0) : (syncConflictData.cloudData.expenses?.length || 0)}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span className="text-slate-400 font-medium">{isBangla ? 'মালের রেট:' : 'Product Rates:'}</span>
+                          <span className="font-sans text-slate-900">{isBangla ? toBanglaNumber(syncConflictData.cloudData.productRates?.length || 0) : (syncConflictData.cloudData.productRates?.length || 0)}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span className="text-slate-400 font-medium">{isBangla ? 'অর্ডার স্টক আউট:' : 'Out of Stock:'}</span>
+                          <span className="font-sans text-slate-900">{isBangla ? toBanglaNumber(syncConflictData.cloudData.outOfStockItems?.length || 0) : (syncConflictData.cloudData.outOfStockItems?.length || 0)}</span>
+                        </li>
+                      </ul>
+                    </div>
+                    
+                    <div className="mt-4 pt-2.5 border-t border-teal-200/40 text-[10px] text-slate-400 flex flex-col font-medium">
+                      <span>{isBangla ? 'সর্বশেষ ব্যাকআপ:' : 'Last Backup:'}</span>
+                      <span className="text-slate-600 font-bold mt-0.5">
+                        {syncConflictData.cloudData.updatedAt 
+                          ? new Date(syncConflictData.cloudData.updatedAt).toLocaleDateString(isBangla ? 'bn-BD' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' }) + ' - ' + new Date(syncConflictData.cloudData.updatedAt).toLocaleTimeString(isBangla ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })
+                          : (isBangla ? 'কখনো না' : 'Never')
+                        }
+                      </span>
+                    </div>
+                  </div>
+
+                </div>
+
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-[11px] text-amber-850 font-medium leading-relaxed">
+                  ⚠️ <span className="font-bold">{isBangla ? 'সতর্কতা:' : 'Note:'}</span> {isBangla 
+                    ? 'আপনি যে ব্যাকআপটি নির্বাচন করবেন সেটি সচল থাকবে এবং অপরটি সম্পূর্ণ প্রতিস্থাপিত (Overwrite) হয়ে যাবে।' 
+                    : 'The backup you choose will be kept active, and the other backup will be permanently overwritten.'}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-4 mt-4 border-t border-slate-150 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSyncConflictData(null)}
+                  className="px-4 py-2.5 text-xs text-slate-500 hover:bg-slate-100 rounded-xl cursor-pointer font-bold transition-all text-center"
+                >
+                  {isBangla ? 'বাতিল' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resolveSyncConflict('cloud')}
+                  className="px-4 py-2.5 text-xs text-white bg-teal-600 hover:bg-teal-500 rounded-xl shadow-xs cursor-pointer font-extrabold transition-all text-center flex items-center justify-center gap-1"
+                >
+                  <FileDown className="h-4 w-4 shrink-0" />
+                  <span>{isBangla ? 'ক্লাউড ব্যাকআপ রিস্টোর করুন' : 'Restore Cloud Backup'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resolveSyncConflict('local')}
+                  className="px-4 py-2.5 text-xs text-slate-800 bg-amber-500 hover:bg-amber-400 rounded-xl shadow-xs cursor-pointer font-extrabold transition-all text-center flex items-center justify-center gap-1"
+                >
+                  <FileUp className="h-4 w-4 shrink-0" />
+                  <span>{isBangla ? 'লোকাল তথ্য ক্লাউডে আপলোড করুন' : 'Upload Local Data'}</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* --- OUTSTANDING DUES MODAL OVERLAY DIALOG --- */}
       <AnimatePresence>
         {isDueListModalOpen && (
@@ -3754,7 +4088,11 @@ export default function App() {
                                 placeholder={isBangla ? '৳ জমার পরিমাণ' : '৳ Deposit Amount'}
                                 value={modalDepositValue}
                                 onChange={(e) => {
-                                  setModalDepositValue(e.target.value);
+                                  let val = e.target.value;
+                                  if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                                    val = val.replace(/^0+/, '');
+                                  }
+                                  setModalDepositValue(val);
                                   setModalDepositError('');
                                 }}
                                 className="flex-1 text-xs p-1.5 rounded-xl border-2 border-teal-200 focus:outline-none focus:border-teal-500 bg-white font-semibold"
@@ -3877,7 +4215,13 @@ export default function App() {
                     required
                     placeholder={isBangla ? 'যেমন: ৩০০' : 'e.g. 300'}
                     value={expenseAmount}
-                    onChange={(e) => setExpenseAmount(e.target.value)}
+                    onChange={(e) => {
+                      let val = e.target.value;
+                      if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                        val = val.replace(/^0+/, '');
+                      }
+                      setExpenseAmount(val);
+                    }}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 font-sans"
                     id="expense-amount-input"
                   />
@@ -4040,7 +4384,13 @@ export default function App() {
                     required
                     placeholder={isBangla ? 'যেমন: ১২০' : 'e.g. 120'}
                     value={rateItemPrice}
-                    onChange={(e) => setRateItemPrice(e.target.value)}
+                    onChange={(e) => {
+                      let val = e.target.value;
+                      if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                        val = val.replace(/^0+/, '');
+                      }
+                      setRateItemPrice(val);
+                    }}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 font-sans"
                     id="rate-item-price-input"
                   />
@@ -4475,6 +4825,84 @@ export default function App() {
                 >
                   {isBangla ? 'বন্ধ করুন' : 'Close'}
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- RESTORE CHOICE MODAL OVERLAY --- */}
+      <AnimatePresence>
+        {isRestoreChoiceModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsRestoreChoiceModalOpen(false)}
+              className="fixed inset-0 bg-black"
+            />
+
+            {/* Modal Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 border border-slate-100 overflow-hidden"
+              id="restore-choice-modal"
+            >
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                  <FileUp className="h-4.5 w-4.5 text-indigo-600" />
+                  <span>{isBangla ? 'ব্যাকআপ রিস্টোর করুন' : 'Restore Backup'}</span>
+                </h3>
+                <button
+                  onClick={() => setIsRestoreChoiceModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer text-xs font-bold p-1 hover:bg-slate-100 rounded-full"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-slate-600 font-bold leading-relaxed">
+                  {isBangla 
+                    ? 'আপনার ফোনে পূর্বে সংরক্ষণ করা একটি লোকাল ব্যাকআপ পাওয়া গেছে। আপনি কিভাবে ডাটা রিস্টোর করতে চান?' 
+                    : 'A previously saved local backup was found on your phone memory. How would you like to restore?'}
+                </p>
+
+                <div className="space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={handleRestoreFromLocalMemory}
+                    className="w-full py-3 px-4 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow-3xs"
+                  >
+                    <Smartphone className="h-4 w-4 text-teal-600" />
+                    <span>{isBangla ? 'ফোনের মেমোরি ব্যাকআপ থেকে রিস্টোর' : 'Restore from Phone Memory'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fileInputRef.current?.click();
+                    }}
+                    className="w-full py-3 px-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-800 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow-3xs"
+                  >
+                    <FileJson className="h-4 w-4 text-indigo-600" />
+                    <span>{isBangla ? 'ব্যাকআপ ফাইল (.json) আপলোড' : 'Upload JSON Backup File'}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsRestoreChoiceModalOpen(false)}
+                    className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 rounded-lg cursor-pointer font-bold"
+                  >
+                    {isBangla ? 'বাতিল' : 'Cancel'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

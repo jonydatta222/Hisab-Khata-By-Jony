@@ -23,7 +23,7 @@ export default function TransactionList({
   
   // Edit form states
   const [editProduct, setEditProduct] = useState('');
-  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editAmount, setEditAmount] = useState<string>('');
   const [editIsCash, setEditIsCash] = useState(true);
   const [editCustomer, setEditCustomer] = useState('');
 
@@ -37,7 +37,7 @@ export default function TransactionList({
   const startEditing = (tx: Transaction) => {
     setEditingId(tx.id);
     setEditProduct(tx.product);
-    setEditAmount(tx.amount);
+    setEditAmount(String(tx.amount));
     setEditIsCash(tx.isCash);
     setEditCustomer(tx.customer || '');
   };
@@ -47,7 +47,8 @@ export default function TransactionList({
   };
 
   const saveEdit = (id: string) => {
-    if (!editProduct.trim() || editAmount <= 0) return;
+    const amt = parseFloat(editAmount);
+    if (!editProduct.trim() || isNaN(amt) || amt <= 0) return;
     if (!editIsCash && !editCustomer.trim()) return;
 
     const original = transactions.find((t) => t.id === id);
@@ -56,7 +57,7 @@ export default function TransactionList({
     onUpdate({
       ...original,
       product: editProduct,
-      amount: editAmount,
+      amount: amt,
       isCash: editIsCash,
       customer: editIsCash ? '' : editCustomer,
     });
@@ -144,7 +145,13 @@ export default function TransactionList({
                                 <input
                                   type="number"
                                   value={editAmount}
-                                  onChange={(e) => setEditAmount(parseFloat(e.target.value) || 0)}
+                                  onChange={(e) => {
+                                    let val = e.target.value;
+                                    if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                                      val = val.replace(/^0+/, '');
+                                    }
+                                    setEditAmount(val);
+                                  }}
                                   className="w-full text-xs p-1.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white font-bold"
                                 />
                               </div>

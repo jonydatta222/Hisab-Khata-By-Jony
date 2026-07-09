@@ -21,12 +21,12 @@ export default function ExpenseList({
 }: ExpenseListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDesc, setEditDesc] = useState('');
-  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editAmount, setEditAmount] = useState<string>('');
 
   const startEditing = (ex: Expense) => {
     setEditingId(ex.id);
     setEditDesc(ex.description);
-    setEditAmount(ex.amount);
+    setEditAmount(String(ex.amount));
   };
 
   const cancelEditing = () => {
@@ -34,14 +34,15 @@ export default function ExpenseList({
   };
 
   const handleUpdateSubmit = (id: string) => {
-    if (!editDesc.trim() || editAmount <= 0) return;
+    const amt = parseFloat(editAmount);
+    if (!editDesc.trim() || isNaN(amt) || amt <= 0) return;
     const original = expenses.find((ex) => ex.id === id);
     if (!original) return;
 
     onUpdate({
       ...original,
       description: editDesc.trim(),
-      amount: editAmount,
+      amount: amt,
     });
     setEditingId(null);
   };
@@ -108,7 +109,13 @@ export default function ExpenseList({
                           <input
                             type="number"
                             value={editAmount}
-                            onChange={(e) => setEditAmount(parseFloat(e.target.value) || 0)}
+                            onChange={(e) => {
+                              let val = e.target.value;
+                              if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                                val = val.replace(/^0+/, '');
+                              }
+                              setEditAmount(val);
+                            }}
                             className="w-full text-xs p-2 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white font-sans font-bold"
                           />
                         </div>
