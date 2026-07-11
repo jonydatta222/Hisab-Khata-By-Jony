@@ -63,7 +63,7 @@ import {
 import { Browser } from '@capacitor/browser';
 import { App as CapApp } from '@capacitor/app';
 
-import logoImg from './assets/logo.png';
+import logoImg from './assets/logo.jpg';
 
 import Calculator from './components/Calculator';
 import StatCard from './components/StatCard';
@@ -82,6 +82,26 @@ export default function App() {
   );
   const [isBangla, setIsBangla] = useState(true);
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
+
+  const changeDateByDays = (days: number) => {
+    const d = new Date(selectedDate);
+    if (!isNaN(d.getTime())) {
+      d.setDate(d.getDate() + days);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      setSelectedDate(`${yyyy}-${mm}-${dd}`);
+    }
+  };
+
+  const handleLogoError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const currentSrc = e.currentTarget.src;
+    if (currentSrc.includes('/logo.png')) {
+      e.currentTarget.src = '/logo.jpg';
+    } else if (currentSrc.includes('/logo.jpg')) {
+      e.currentTarget.src = logoImg;
+    }
+  };
   const [currentTime, setCurrentTime] = useState('');
   const [currentDateFormatted, setCurrentDateFormatted] = useState('');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -1832,7 +1852,8 @@ export default function App() {
             {/* Brand Logo & Name */}
             <div className="flex items-center gap-2">
               <img
-                src={logoImg}
+                src="/logo.png"
+                onError={handleLogoError}
                 alt="হিসাব খাতা"
                 className="h-10 w-10 rounded-xl object-cover shadow-sm border border-slate-200/60 shrink-0 transition-transform duration-250 active:scale-95"
                 referrerPolicy="no-referrer"
@@ -3524,14 +3545,34 @@ export default function App() {
                 </div>
                 
                 <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-indigo-500" />
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
+                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 p-1 rounded-xl shadow-3xs">
+                    <button
+                      type="button"
+                      onClick={() => changeDateByDays(-1)}
+                      className="p-1.5 hover:bg-slate-200/70 text-slate-600 rounded-lg transition-all cursor-pointer active:scale-90"
+                      title={isBangla ? 'আগের দিন' : 'Previous Day'}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    
+                    <div className="flex items-center gap-1.5 px-1">
+                      <Calendar className="h-4 w-4 text-indigo-500 shrink-0" />
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="border-0 focus:ring-0 p-0 text-xs font-bold text-slate-700 bg-transparent focus:outline-none w-[115px]"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => changeDateByDays(1)}
+                      className="p-1.5 hover:bg-slate-200/70 text-slate-600 rounded-lg transition-all cursor-pointer active:scale-90"
+                      title={isBangla ? 'পরের দিন' : 'Next Day'}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
                   </div>
 
                   {(todayTransactions.length > 0 || todayExpenses.length > 0) && (
@@ -4132,7 +4173,8 @@ export default function App() {
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-5 text-center">
                   <div className="flex justify-center">
                     <img
-                      src={logoImg}
+                      src="/logo.png"
+                      onError={handleLogoError}
                       alt="হিসাব খাতা"
                       className="h-16 w-16 rounded-2xl object-cover shadow-md border border-slate-200/60"
                       referrerPolicy="no-referrer"
