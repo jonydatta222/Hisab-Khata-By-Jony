@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Landmark, Coins, X, Check, Edit2, Trash2, Clock } from 'lucide-react';
-import { CustomerDue } from '../types';
+import { Search, Landmark, Coins, X, Check, Edit2, Trash2, Clock, User, History, Calendar } from 'lucide-react';
+import { CustomerDue, Transaction } from '../types';
 import { formatCurrency, toBanglaNumber, formatDate, formatTimeStr } from '../utils';
 
 interface DueListProps {
@@ -11,10 +11,22 @@ interface DueListProps {
   onDelete: (customerName: string) => void;
   onRename: (oldName: string, newName: string) => void;
   onViewDetail?: (customerName: string) => void;
+  transactions?: Transaction[];
+  onDeleteTransaction?: (id: string) => void;
 }
 
-export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRename, onViewDetail }: DueListProps) {
+export default function DueList({ 
+  dueList, 
+  isBangla, 
+  onDeposit, 
+  onDelete, 
+  onRename, 
+  onViewDetail,
+  transactions = [],
+  onDeleteTransaction
+}: DueListProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeSubTab, setActiveSubTab] = useState<'customers' | 'history'>('customers');
   const [depositingCustomer, setDepositingCustomer] = useState<string | null>(null);
   const [depositAmount, setDepositAmount] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -22,12 +34,49 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
   const [editingCustomer, setEditingCustomer] = useState<string | null>(null);
   const [newNameValue, setNewNameValue] = useState<string>('');
   const [deletingCustomer, setDeletingCustomer] = useState<string | null>(null);
+  const [deletingDepositId, setDeletingDepositId] = useState<string | null>(null);
+
+  // --- Prevent background scroll when any local overlay modal is open ---
+  React.useEffect(() => {
+    const isLocalModalOpen = !!depositingCustomer || !!editingCustomer || !!deletingCustomer || !!deletingDepositId;
+    if (isLocalModalOpen) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    };
+  }, [depositingCustomer, editingCustomer, deletingCustomer, deletingDepositId]);
 
   const filteredDues = dueList.filter((cd) => 
     cd.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const totalOutstandingDue = dueList.reduce((sum, item) => sum + item.amount, 0);
+
+  // Extract all baki deposit transactions
+  const depositTxs = React.useMemo(() => {
+    return (transactions || [])
+      .filter((tx) => tx.isCash && tx.customer && tx.customer.trim() !== '')
+      .sort((a, b) => {
+        const dateCompare = b.date.localeCompare(a.date);
+        if (dateCompare !== 0) return dateCompare;
+        return b.time.localeCompare(a.time);
+      });
+  }, [transactions]);
+
+  const filteredDeposits = React.useMemo(() => {
+    return depositTxs.filter((tx) => 
+      tx.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tx.product.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [depositTxs, searchTerm]);
+
+  const totalDeposited = depositTxs.reduce((sum, item) => sum + item.amount, 0);
 
   const startDeposit = (customer: CustomerDue) => {
     setDepositingCustomer(customer.name);
@@ -87,18 +136,32 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
     cancelDeposit();
   };
 
+  const headerTitle = activeSubTab === 'customers'
+    ? (isBangla ? 'বাকির খাতাপত্র (গ্রাহকের তালিকা)' : 'Outstanding Dues List')
+    : (isBangla ? 'বকেয়া জমার খতিয়ান (ইতিহাস)' : 'Due Deposit History Ledger');
+
+  const headerSubtext = activeSubTab === 'customers'
+    ? (isBangla 
+        ? `সর্বমোট বকেয়া: ${formatCurrency(totalOutstandingDue, true)} (${toBanglaNumber(filteredDues.length)} জন ক্রেতা)` 
+        : `Total Outstanding: ${formatCurrency(totalOutstandingDue, false)} (${filteredDues.length} customers)`)
+    : (isBangla
+        ? `সর্বমোট জমা: ${formatCurrency(totalDeposited, true)} (${toBanglaNumber(depositTxs.length)} বার জমা)`
+        : `Total Deposited: ${formatCurrency(totalDeposited, false)} (${depositTxs.length} payments)`);
+
+  const searchPlaceholder = activeSubTab === 'customers'
+    ? (isBangla ? 'ক্রেতার নাম খুঁজুন...' : 'Search customer...')
+    : (isBangla ? 'ক্রেতার নাম বা বিবরণ খুঁজুন...' : 'Search by name or desc...');
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-3xs">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
           <h3 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-2">
-            <span className="text-rose-500">●</span>
-            {isBangla ? 'বাকির খাতাপত্র (গ্রাহকের তালিকা)' : 'Outstanding Dues List'}
+            <span className={activeSubTab === 'customers' ? 'text-rose-500' : 'text-emerald-500'}>●</span>
+            {headerTitle}
           </h3>
           <p className="text-xs text-slate-500">
-            {isBangla 
-              ? `সর্বমোট বকেয়া: ${formatCurrency(totalOutstandingDue, true)} (${toBanglaNumber(filteredDues.length)} জন ক্রেতা)` 
-              : `Total Outstanding: ${formatCurrency(totalOutstandingDue, false)} (${filteredDues.length} customers)`}
+            {headerSubtext}
           </p>
         </div>
 
@@ -109,7 +172,7 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
           </span>
           <input
             type="text"
-            placeholder={isBangla ? 'ক্রেতার নাম খুঁজুন...' : 'Search customer...'}
+            placeholder={searchPlaceholder}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full sm:w-56 pl-9 pr-4 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/50"
@@ -117,78 +180,194 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
         </div>
       </div>
 
-      {filteredDues.length === 0 ? (
-        <div className="text-center py-8 border border-dashed border-slate-150 rounded-xl bg-slate-50/50">
-          <p className="text-slate-400 text-sm">
-            {isBangla ? 'কোনো বকেয়া হিসাব পাওয়া যায়নি' : 'No dues listed'}
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-[450px] overflow-y-auto pr-1">
-          <AnimatePresence initial={false}>
-            {filteredDues.map((cd) => {
-              return (
-                <motion.div
-                  key={cd.name}
-                  layout
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="p-2 sm:p-2.5 rounded-xl border border-slate-100 bg-rose-50/10 hover:bg-rose-50/20 hover:border-rose-100/60 flex flex-col justify-between gap-2 transition-all shadow-3xs"
-                >
-                  {/* Main card row: Info on left, Actions on right */}
-                  <div className="flex items-center justify-between gap-1.5">
-                    <div className="flex items-start gap-1.5 min-w-0 flex-1">
-                      <span className="p-1 bg-rose-50 text-rose-600 rounded-md shrink-0 mt-0.5">
-                        <Landmark className="h-3.5 w-3.5" />
-                      </span>
-                      <div 
-                        className="min-w-0 cursor-pointer group flex-1"
-                        onClick={() => onViewDetail?.(cd.name)}
-                        title={isBangla ? 'বিস্তারিত খতিয়ান দেখতে ক্লিক করুন' : 'Click to view detailed ledger'}
-                      >
-                        <h4 className="text-xs font-bold text-slate-800 group-hover:text-rose-600 group-hover:underline truncate" title={cd.name}>
-                          {cd.name}
-                        </h4>
-                        <div className="flex items-center gap-1 text-[10px] text-slate-500 font-bold">
-                          <span>{isBangla ? 'বাকি:' : 'Due:'}</span>
-                          <span className="text-rose-600 font-black group-hover:text-rose-700">
-                            {formatCurrency(cd.amount, isBangla)}
-                          </span>
+      {/* Sub-Tabs Switcher */}
+      <div className="flex border-b border-slate-155 mb-5 gap-5">
+        <button
+          onClick={() => {
+            setActiveSubTab('customers');
+            setSearchTerm('');
+          }}
+          className={`pb-2.5 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+            activeSubTab === 'customers'
+              ? 'border-rose-500 text-rose-600'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <User className="h-4 w-4 shrink-0" />
+          <span>{isBangla ? 'গ্রাহকের তালিকা' : 'Customer List'}</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+            activeSubTab === 'customers' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'
+          }`}>
+            {isBangla ? toBanglaNumber(dueList.length) : dueList.length}
+          </span>
+        </button>
+        <button
+          onClick={() => {
+            setActiveSubTab('history');
+            setSearchTerm('');
+          }}
+          className={`pb-2.5 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+            activeSubTab === 'history'
+              ? 'border-emerald-500 text-emerald-600'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <History className="h-4 w-4 shrink-0" />
+          <span>{isBangla ? 'জমার ইতিহাস' : 'Deposit History'}</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+            activeSubTab === 'history' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+          }`}>
+            {isBangla ? toBanglaNumber(depositTxs.length) : depositTxs.length}
+          </span>
+        </button>
+      </div>
+
+      {activeSubTab === 'customers' ? (
+        filteredDues.length === 0 ? (
+          <div className="text-center py-8 border border-dashed border-slate-150 rounded-xl bg-slate-50/50">
+            <p className="text-slate-400 text-sm">
+              {isBangla ? 'কোনো বকেয়া হিসাব পাওয়া যায়নি' : 'No dues listed'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-[450px] overflow-y-auto pr-1">
+            <AnimatePresence initial={false}>
+              {filteredDues.map((cd) => {
+                return (
+                  <motion.div
+                    key={cd.name}
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="p-2 sm:p-2.5 rounded-xl border border-slate-100 bg-rose-50/10 hover:bg-rose-50/20 hover:border-rose-100/60 flex flex-col justify-between gap-2 transition-all shadow-3xs"
+                  >
+                    {/* Main card row: Info on left, Actions on right */}
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                        <span className="p-1 bg-rose-50 text-rose-600 rounded-md shrink-0 mt-0.5">
+                          <Landmark className="h-3.5 w-3.5" />
+                        </span>
+                        <div 
+                          className="min-w-0 cursor-pointer group flex-1"
+                          onClick={() => onViewDetail?.(cd.name)}
+                          title={isBangla ? 'বিস্তারিত খতিয়ান দেখতে ক্লিক করুন' : 'Click to view detailed ledger'}
+                        >
+                          <h4 className="text-xs font-bold text-slate-800 group-hover:text-rose-600 group-hover:underline truncate" title={cd.name}>
+                            {cd.name}
+                          </h4>
+                          <div className="flex items-center gap-1 text-[10px] text-slate-500 font-bold">
+                            <span>{isBangla ? 'বাকি:' : 'Due:'}</span>
+                            <span className="text-rose-600 font-black group-hover:text-rose-700">
+                              {formatCurrency(cd.amount, isBangla)}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Action triggers */}
-                    <div className="flex items-center gap-0.5 shrink-0 bg-slate-50/50 p-0.5 rounded-lg border border-slate-100">
-                      <button
-                        onClick={() => startRename(cd)}
-                        className="p-1 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors cursor-pointer"
-                        title={isBangla ? 'নাম পরিবর্তন' : 'Rename Customer'}
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => startDeleteConfirm(cd)}
-                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
-                        title={isBangla ? 'মুছে ফেলুন' : 'Delete Customer'}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => startDeposit(cd)}
-                        className="text-[9px] text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/85 px-1.5 py-1 rounded font-bold flex items-center gap-0.5 transition-all cursor-pointer shadow-3xs active:scale-95"
-                      >
-                        <Coins className="h-2.5 w-2.5" />
-                        <span>{isBangla ? 'জমা' : 'Deposit'}</span>
-                      </button>
+                      {/* Action triggers */}
+                      <div className="flex items-center gap-0.5 shrink-0 bg-slate-50/50 p-0.5 rounded-lg border border-slate-100">
+                        <button
+                          onClick={() => startRename(cd)}
+                          className="p-1 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors cursor-pointer"
+                          title={isBangla ? 'নাম পরিবর্তন' : 'Rename Customer'}
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => startDeleteConfirm(cd)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                          title={isBangla ? 'মুছে ফেলুন' : 'Delete Customer'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => startDeposit(cd)}
+                          className="text-[9px] text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/85 px-1.5 py-1 rounded font-bold flex items-center gap-0.5 transition-all cursor-pointer shadow-3xs active:scale-95"
+                        >
+                          <Coins className="h-2.5 w-2.5" />
+                          <span>{isBangla ? 'জমা' : 'Deposit'}</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        )
+      ) : (
+        // DEPOSIT HISTORY VIEW
+        filteredDeposits.length === 0 ? (
+          <div className="text-center py-8 border border-dashed border-slate-150 rounded-xl bg-slate-50/50">
+            <p className="text-slate-400 text-sm">
+              {isBangla ? 'কোনো জমার হিসাব পাওয়া যায়নি' : 'No deposits listed'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-[450px] overflow-y-auto pr-1 animate-fadeIn">
+            <AnimatePresence initial={false}>
+              {filteredDeposits.map((tx) => {
+                return (
+                  <motion.div
+                    key={tx.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="p-2.5 rounded-xl border border-slate-100 bg-emerald-50/5 hover:bg-emerald-50/15 hover:border-emerald-100/40 flex flex-col justify-between gap-1.5 transition-all shadow-3xs"
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                        <span className="p-1 bg-emerald-50 text-emerald-600 rounded-md shrink-0 mt-0.5">
+                          <Coins className="h-3.5 w-3.5" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-bold text-slate-800 truncate" title={tx.customer}>
+                            {tx.customer}
+                          </h4>
+                          <p className="text-[10px] text-slate-500 truncate" title={tx.product}>
+                            {tx.product}
+                          </p>
+                          
+                          {/* Date and Time */}
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold mt-1">
+                            <span className="flex items-center gap-0.5">
+                              <Calendar className="h-2.5 w-2.5 text-slate-400" />
+                              <span className="font-mono">{formatDate(tx.date, isBangla)}</span>
+                            </span>
+                            <span>•</span>
+                            <span className="flex items-center gap-0.5">
+                              <Clock className="h-2.5 w-2.5 text-slate-400" />
+                              <span className="font-mono">{formatTimeStr(tx.time, isBangla)}</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span className="text-xs sm:text-sm font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
+                          +{formatCurrency(tx.amount, isBangla)}
+                        </span>
+                        {onDeleteTransaction && (
+                          <button
+                            onClick={() => {
+                              setDeletingDepositId(tx.id);
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                            title={isBangla ? 'জমা ডিলিট করুন' : 'Delete Deposit'}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        )
       )}
 
       {/* Screen-level Overlay Modals for Smooth Popups */}
@@ -429,6 +608,71 @@ export default function DueList({ dueList, isBangla, onDeposit, onDelete, onRena
             </motion.div>
           </div>
         )}
+
+        {/* 4. DEPOSIT DELETE CONFIRMATION MODAL */}
+        {deletingDepositId && (() => {
+          const tx = depositTxs.find(t => t.id === deletingDepositId);
+          if (!tx) return null;
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setDeletingDepositId(null)}
+                className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+              />
+              {/* Modal Card */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                transition={{ type: 'spring', duration: 0.3 }}
+                className="bg-white w-full max-w-sm rounded-2xl border border-slate-200 p-6 shadow-2xl relative z-10 space-y-4"
+              >
+                <div className="flex justify-center">
+                  <span className="p-3.5 bg-rose-50 text-rose-600 rounded-full">
+                    <Trash2 className="h-6 w-6" />
+                  </span>
+                </div>
+
+                <div className="text-center space-y-1.5">
+                  <h3 className="text-base font-extrabold text-slate-800">
+                    {isBangla ? 'জমার হিসাব মুছে ফেলার নিশ্চিতকরণ' : 'Confirm Deposit Deletion'}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-bold leading-relaxed px-2">
+                    {isBangla 
+                      ? `আপনি কি নিশ্চিতভাবে "${tx.customer}"-এর ${formatCurrency(tx.amount, true)}-এর এই জমার হিসাবটি মুছে ফেলতে চান? এটি মুছে ফেললে বকেয়া বাকি টাকার পরিমাণ বৃদ্ধি পাবে।` 
+                      : `Are you sure you want to delete the deposit of ${formatCurrency(tx.amount, false)} for "${tx.customer}"? This will increase their outstanding due balance.`}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeletingDepositId(null)}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-all active:scale-98"
+                  >
+                    {isBangla ? 'বাতিল' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onDeleteTransaction) {
+                        onDeleteTransaction(deletingDepositId);
+                      }
+                      setDeletingDepositId(null);
+                    }}
+                    className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer transition-all active:scale-98 shadow-sm"
+                  >
+                    {isBangla ? 'হ্যাঁ, ডিলিট করুন' : 'Yes, Delete'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
     </div>
   );

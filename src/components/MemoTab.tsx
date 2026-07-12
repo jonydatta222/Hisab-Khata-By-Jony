@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { Transaction, ProductRateItem } from '../types';
 import { toBanglaNumber, formatDate, formatCurrency, generateId } from '../utils';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 
 interface MemoTabProps {
   transactions: Transaction[];
@@ -35,6 +37,38 @@ interface MemoItem {
 }
 
 export default function MemoTab({ transactions, productRates, shopName, isBangla }: MemoTabProps) {
+  const isCapacitor = typeof window !== 'undefined' && (
+    (window as any).Capacitor || 
+    window.location.protocol === 'file:' || 
+    window.location.protocol.startsWith('capacitor') ||
+    /Capacitor|Cordova/i.test(navigator.userAgent)
+  );
+
+  const saveAndShareFile = async (base64DataUrl: string, fileName: string) => {
+    try {
+      const parts = base64DataUrl.split(',');
+      const base64Data = parts.length > 1 ? parts[1] : parts[0];
+
+      const writeResult = await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.Cache,
+      });
+
+      await Share.share({
+        title: isBangla ? 'রশিদ শেয়ার করুন' : 'Share Receipt',
+        text: isBangla ? `${memoShopName} থেকে রশিদ` : `Receipt from ${memoShopName}`,
+        url: writeResult.uri,
+        dialogTitle: isBangla ? 'রশিদ শেয়ার/প্রিন্ট করুন' : 'Share/Print Receipt',
+      });
+
+      triggerToast(isBangla ? 'রশিদ শেয়ার করার জন্য প্রস্তুত!' : 'Receipt ready for sharing/printing!');
+    } catch (error) {
+      console.error('Failed to save or share file via Capacitor:', error);
+      triggerToast(isBangla ? 'ফাইল সংরক্ষণে বা শেয়ার করতে সমস্যা হয়েছে!' : 'Error saving or sharing file!');
+    }
+  };
+
   // --- Shop Settings ---
   const [memoShopName, setMemoShopName] = useState(shopName || localStorage.getItem('hisab_khata_shop_name') || 'আমার দোকান');
   const [shopAddress, setShopAddress] = useState(localStorage.getItem('memo_shop_address') || 'ঢাকা, বাংলাদেশ');
@@ -76,7 +110,7 @@ export default function MemoTab({ transactions, productRates, shopName, isBangla
   }, []);
 
   // --- Memo Size & Units State ---
-  const [memoSize, setMemoSize] = useState<'a4' | 'a5' | 'pos'>('a4');
+  const [memoSize, setMemoSize] = useState<'a4' | 'a5' | 'pos'>('pos');
   const unitsList = isBangla 
     ? ['পিছ', 'কেজি', 'গ্রাম', 'লিটার', 'গজ', 'ফুট', 'ব্যাগ', 'প্যাকেট', 'ডজন', 'টি', 'বস্তা', 'লিঃ']
     : ['pcs', 'kg', 'g', 'L', 'yd', 'ft', 'bag', 'pkt', 'doz', 'pcs', 'sack', 'Ltr'];
@@ -447,18 +481,24 @@ export default function MemoTab({ transactions, productRates, shopName, isBangla
     ctx.fillText(isBangla ? 'ডিজিটাল হিসাব খাতা দ্বারা সংকলিত' : 'Generated via Digital Hisab Khata', width / 2, height - (sizeType === 'pos' ? 15 : 30));
   };
 
-  const downloadJPG = () => {
+  const downloadJPG = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     drawMemoOnCanvas(canvas, memoSize);
 
-    // Trigger local download link
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    const link = document.createElement('a');
-    link.download = `${invoiceNo || 'Memo'}_receipt_${memoSize.toUpperCase()}.jpg`;
-    link.href = dataUrl;
-    link.click();
-    triggerToast(isBangla ? 'রশিদ সফলভাবে ডাউনলোড করা হয়েছে!' : 'Receipt successfully downloaded as JPG!');
+    const fileName = `${invoiceNo || 'Memo'}_receipt_${memoSize.toUpperCase()}.jpg`;
+
+    if (isCapacitor) {
+      await saveAndShareFile(dataUrl, fileName);
+    } else {
+      // Trigger local download link
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = dataUrl;
+      link.click();
+      triggerToast(isBangla ? 'রশিদ সফলভাবে ডাউনলোড করা হয়েছে!' : 'Receipt successfully downloaded as JPG!');
+    }
   };
 
   const downloadPDF = async () => {
@@ -494,12 +534,26 @@ export default function MemoTab({ transactions, productRates, shopName, isBangla
 
     // Append standard canvas image onto the PDF document
     pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`${invoiceNo || 'Memo'}_receipt_${memoSize.toUpperCase()}.pdf`);
-    triggerToast(isBangla ? 'রশিদ সফলভাবে PDF ডাউনলোড করা হয়েছে!' : 'Receipt successfully downloaded as PDF!');
+
+    const fileName = `${invoiceNo || 'Memo'}_receipt_${memoSize.toUpperCase()}.pdf`;
+
+    if (isCapacitor) {
+      const pdfDataUri = pdf.output('datauristring');
+      await saveAndShareFile(pdfDataUri, fileName);
+    } else {
+      pdf.save(fileName);
+      triggerToast(isBangla ? 'রশিদ সফলভাবে PDF ডাউনলোড করা হয়েছে!' : 'Receipt successfully downloaded as PDF!');
+    }
   };
 
   // --- PRINT VIA HIDDEN IFRAME ---
   const printMemo = () => {
+    if (isCapacitor) {
+      triggerToast(isBangla ? 'রশিদটি প্রিন্ট করতে PDF হিসেবে শেয়ার সিলেক্ট করুন।' : 'To print the receipt, please share it as PDF and select Print.');
+      downloadPDF();
+      return;
+    }
+
     // Generate styled print contents
     const formattedCust = customerName || (isBangla ? 'সাধারণ ক্রেতা' : 'General Customer');
     const formattedDate = memoDate ? formatDate(memoDate, isBangla) : '';
@@ -971,20 +1025,6 @@ export default function MemoTab({ transactions, productRates, shopName, isBangla
                   <button
                     type="button"
                     onClick={() => {
-                      setMemoSize('a5');
-                      triggerToast(isBangla ? 'রশিদের সাইজ A5 সেট করা হয়েছে!' : 'Paper size set to A5!');
-                    }}
-                    className={`py-1.5 text-xs font-extrabold rounded-lg cursor-pointer transition-all text-center ${
-                      memoSize === 'a5'
-                        ? 'bg-white text-teal-700 shadow-3xs'
-                        : 'text-slate-500 hover:text-slate-800 font-bold'
-                    }`}
-                  >
-                    A5 ({isBangla ? 'মাঝারি' : 'Medium'})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
                       setMemoSize('pos');
                       triggerToast(isBangla ? 'থার্মাল POS রিসিট সাইজ সেট করা হয়েছে!' : 'Paper size set to Thermal POS!');
                     }}
@@ -995,6 +1035,20 @@ export default function MemoTab({ transactions, productRates, shopName, isBangla
                     }`}
                   >
                     POS ({isBangla ? 'থার্মাল' : 'Thermal'})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMemoSize('a5');
+                      triggerToast(isBangla ? 'রশিদের সাইজ A5 সেট করা হয়েছে!' : 'Paper size set to A5!');
+                    }}
+                    className={`py-1.5 text-xs font-extrabold rounded-lg cursor-pointer transition-all text-center ${
+                      memoSize === 'a5'
+                        ? 'bg-white text-teal-700 shadow-3xs'
+                        : 'text-slate-500 hover:text-slate-800 font-bold'
+                    }`}
+                  >
+                    A5 ({isBangla ? 'মাঝারি' : 'Medium'})
                   </button>
                 </div>
               </div>

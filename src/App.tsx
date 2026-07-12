@@ -34,7 +34,10 @@ import {
   User,
   Edit2,
   Facebook,
-  Linkedin
+  Linkedin,
+  Search,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 import { Transaction, Expense, CustomerDue, DailySummary, OutOfStockItem, ProductRateItem } from './types';
@@ -44,7 +47,8 @@ import {
   formatTimeStr,
   getTodayDateString,
   formatCurrency,
-  generateId
+  generateId,
+  getTimestamp
 } from './utils';
 
 import { 
@@ -82,6 +86,9 @@ export default function App() {
     /Capacitor|Cordova/i.test(navigator.userAgent)
   );
   const [isBangla, setIsBangla] = useState(true);
+  const [isBalancesHidden, setIsBalancesHidden] = useState<boolean>(() => {
+    return localStorage.getItem('hisab_khata_balances_hidden') === 'true';
+  });
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
 
   const changeDateByDays = (days: number) => {
@@ -176,6 +183,9 @@ export default function App() {
   const [showAllRates, setShowAllRates] = useState(false);
   const [oosSearch, setOosSearch] = useState('');
   const [rateSearch, setRateSearch] = useState('');
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const [modalSearchQuery, setModalSearchQuery] = useState('');
   const [depositingCustomerName, setDepositingCustomerName] = useState<string | null>(null);
   const [modalDepositValue, setModalDepositValue] = useState('');
@@ -558,12 +568,15 @@ export default function App() {
 
     if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
     }
 
     return () => {
       document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
     };
   }, [
     isCalcOpen,
@@ -1037,8 +1050,17 @@ export default function App() {
   // --- Calculations for Current Selected Date ---
   
   // Filter transactions and expenses for the selected date
-  const todayTransactions = useMemo(() => transactions.filter((tx) => tx.date === selectedDate), [transactions, selectedDate]);
-  const todayExpenses = useMemo(() => expenses.filter((ex) => ex.date === selectedDate), [expenses, selectedDate]);
+  const todayTransactions = useMemo(() => {
+    return transactions
+      .filter((tx) => tx.date === selectedDate)
+      .sort((a, b) => getTimestamp(b.date, b.time) - getTimestamp(a.date, a.time));
+  }, [transactions, selectedDate]);
+
+  const todayExpenses = useMemo(() => {
+    return expenses
+      .filter((ex) => ex.date === selectedDate)
+      .sort((a, b) => getTimestamp(b.date, b.time) - getTimestamp(a.date, a.time));
+  }, [expenses, selectedDate]);
 
   // Dynamic calculations
   const todaySales = useMemo(() => todayTransactions.reduce((sum, tx) => {
@@ -1100,7 +1122,8 @@ export default function App() {
         lastDate: duesMap[name].lastDate,
         lastTime: duesMap[name].lastTime,
       }))
-      .filter((cd) => cd.amount > 0);
+      .filter((cd) => cd.amount > 0)
+      .sort((a, b) => getTimestamp(b.lastDate, b.lastTime) - getTimestamp(a.lastDate, a.lastTime));
   }, [transactions]);
 
   const globalTotalDue = useMemo(() => customerDues.reduce((sum, cd) => sum + cd.amount, 0), [customerDues]);
@@ -1123,6 +1146,26 @@ export default function App() {
     const found = customerDues.find(cd => cd.name.trim().toLowerCase() === selectedCustomerForDetail.trim().toLowerCase());
     return found ? found.amount : 0;
   }, [customerDues, selectedCustomerForDetail]);
+
+  const soldTransactions = useMemo(() => {
+    return transactions.filter(tx => {
+      const prodLower = tx.product.toLowerCase().trim();
+      return !(
+        prodLower.startsWith('বাকি টাকা জমা') || 
+        prodLower.startsWith('বাকির টাকা জমা') || 
+        prodLower.includes('due deposit')
+      );
+    }).sort((a, b) => getTimestamp(b.date, b.time) - getTimestamp(a.date, a.time));
+  }, [transactions]);
+
+  const filteredSoldTransactions = useMemo(() => {
+    if (!historySearchQuery.trim()) return soldTransactions;
+    const q = historySearchQuery.toLowerCase().trim();
+    return soldTransactions.filter(tx => 
+      tx.product.toLowerCase().includes(q) ||
+      (tx.customer && tx.customer.toLowerCase().includes(q))
+    );
+  }, [soldTransactions, historySearchQuery]);
 
   // --- All-time Product Sales Helper for Donut Chart ---
   const allTimeSales = useMemo(() => {
@@ -1994,6 +2037,8 @@ export default function App() {
                 >
                   <CalcIcon className="h-4 w-4 text-slate-600" />
                 </button>
+
+
      
                 {/* Cloud Sync Controller */}
                 <button
@@ -2056,44 +2101,73 @@ export default function App() {
             
             {/* STATS CARDS GRID - INSIDE HOME TAB */}
             <div className="max-w-xl mx-auto w-full px-1 sm:px-0">
-              <section className="grid grid-cols-2 gap-3" id="stats-dashboard-grid">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <span>📊</span>
+                  <span>{isBangla ? 'আজকের হিসাব বিবরণী' : "Today's Account Summary"}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !isBalancesHidden;
+                    setIsBalancesHidden(nextVal);
+                    localStorage.setItem('hisab_khata_balances_hidden', String(nextVal));
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-black rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shadow-3xs cursor-pointer active:scale-95 transition-all shrink-0"
+                  id="stats-eye-toggle-master"
+                >
+                  {isBalancesHidden ? (
+                    <>
+                      <Eye className="h-3 w-3 text-emerald-600 animate-pulse" />
+                      <span>{isBangla ? 'টাকা দেখান' : 'Show Money'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <EyeOff className="h-3 w-3 text-slate-400" />
+                      <span>{isBangla ? 'টাকা লুকান' : 'Hide Money'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <section className="grid grid-cols-2 gap-2" id="stats-dashboard-grid">
                 
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
-                  <span className="text-[13px] sm:text-sm font-extrabold text-slate-600 uppercase tracking-wide block">
+                <div className="bg-white py-2 px-3 rounded-xl border border-slate-200 shadow-3xs relative overflow-hidden">
+                  <span className="text-[13px] sm:text-sm font-extrabold text-slate-600 uppercase tracking-wide block leading-tight">
                     {isBangla ? 'মোট বিক্রি' : 'Total Sales'}
                   </span>
-                  <span className="text-[17px] sm:text-lg font-black text-emerald-600 block mt-1">
-                    {formatCurrency(todaySales, isBangla)}
+                  <span className="text-[18px] sm:text-xl font-black text-emerald-600 block mt-0.5 leading-tight">
+                    {isBalancesHidden ? '৳ ••••' : formatCurrency(todaySales, isBangla)}
                   </span>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
-                  <span className="text-[13px] sm:text-sm font-extrabold text-slate-600 uppercase tracking-wide block">
+                <div className="bg-white py-2 px-3 rounded-xl border border-slate-200 shadow-3xs relative overflow-hidden">
+                  <span className="text-[13px] sm:text-sm font-extrabold text-slate-600 uppercase tracking-wide block leading-tight">
                     {isBangla ? 'নগদ জমা' : 'Cash Deposit'}
                   </span>
-                  <span className="text-[17px] sm:text-lg font-black text-blue-600 block mt-1">
-                    {formatCurrency(todayCashDeposit, isBangla)}
+                  <span className="text-[18px] sm:text-xl font-black text-blue-600 block mt-0.5 leading-tight">
+                    {isBalancesHidden ? '৳ ••••' : formatCurrency(todayCashDeposit, isBangla)}
                   </span>
                 </div>
 
                 <div 
                   onClick={() => setIsDueListModalOpen(true)}
-                  className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs cursor-pointer hover:bg-slate-50/50 transition-colors"
+                  className="bg-white py-2 px-3 rounded-xl border border-slate-200 shadow-3xs cursor-pointer hover:bg-slate-50/50 transition-colors relative overflow-hidden"
                 >
-                  <span className="text-[13px] sm:text-sm font-extrabold text-slate-600 uppercase tracking-wide block">
+                  <span className="text-[13px] sm:text-sm font-extrabold text-slate-600 uppercase tracking-wide block leading-tight">
                     {isBangla ? 'আজকের বাকি' : "Today's Due"}
                   </span>
-                  <span className="text-[17px] sm:text-lg font-black text-amber-600 block mt-1">
-                    {formatCurrency(todayDueTaken, isBangla)}
+                  <span className="text-[18px] sm:text-xl font-black text-amber-600 block mt-0.5 leading-tight">
+                    {isBalancesHidden ? '৳ ••••' : formatCurrency(todayDueTaken, isBangla)}
                   </span>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
-                  <span className="text-[13px] sm:text-sm font-extrabold text-slate-600 uppercase tracking-wide block">
+                <div className="bg-white py-2 px-3 rounded-xl border border-slate-200 shadow-3xs relative overflow-hidden">
+                  <span className="text-[13px] sm:text-sm font-extrabold text-slate-600 uppercase tracking-wide block leading-tight">
                     {isBangla ? 'আজকের খরচ' : "Today's Expense"}
                   </span>
-                  <span className="text-[17px] sm:text-lg font-black text-rose-600 block mt-1">
-                    {formatCurrency(todayExpenseTotal, isBangla)}
+                  <span className="text-[18px] sm:text-xl font-black text-rose-600 block mt-0.5 leading-tight">
+                    {isBalancesHidden ? '৳ ••••' : formatCurrency(todayExpenseTotal, isBangla)}
                   </span>
                 </div>
 
@@ -2532,9 +2606,9 @@ export default function App() {
                   {/* List Container without lagging layout animation */}
                   <div className="flex-1 space-y-2 flex flex-col justify-between">
                     {(() => {
-                      const filteredOos = outOfStockItems.filter(item => 
-                        item.name.toLowerCase().includes(oosSearch.toLowerCase())
-                      );
+                      const filteredOos = outOfStockItems
+                        .filter(item => item.name.toLowerCase().includes(oosSearch.toLowerCase()))
+                        .sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
                       
                       const itemsToShow = showAllOos ? filteredOos : filteredOos.slice(0, 6);
 
@@ -2696,9 +2770,9 @@ export default function App() {
                   {/* List Container without lagging layout animation */}
                   <div className="flex-1 space-y-2 flex flex-col justify-between">
                     {(() => {
-                      const filteredRates = productRates.filter(item => 
-                        item.name.toLowerCase().includes(rateSearch.toLowerCase())
-                      );
+                      const filteredRates = productRates
+                        .filter(item => item.name.toLowerCase().includes(rateSearch.toLowerCase()))
+                        .sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
                       
                       const itemsToShow = showAllRates ? filteredRates : filteredRates.slice(0, 6);
 
@@ -2879,6 +2953,8 @@ export default function App() {
                     onDelete={handleDeleteCustomerDues}
                     onRename={handleRenameCustomerDues}
                     onViewDetail={setSelectedCustomerForDetail}
+                    transactions={transactions}
+                    onDeleteTransaction={handleDeleteTransaction}
                   />
                 </div>
               )}
@@ -2915,7 +2991,7 @@ export default function App() {
                   {isBangla ? 'চলতি মাসের বিক্রি' : "This Month's Sales"}
                 </span>
                 <span className="text-[17px] sm:text-lg font-black text-emerald-600 block mt-1">
-                  {formatCurrency(monthlyStats.sales, isBangla)}
+                  {isBalancesHidden ? '৳ ••••' : formatCurrency(monthlyStats.sales, isBangla)}
                 </span>
               </div>
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
@@ -2923,7 +2999,7 @@ export default function App() {
                   {isBangla ? 'চলতি মাসের নগদ জমা' : "This Month's Cash"}
                 </span>
                 <span className="text-[17px] sm:text-lg font-black text-blue-600 block mt-1">
-                  {formatCurrency(monthlyStats.cash, isBangla)}
+                  {isBalancesHidden ? '৳ ••••' : formatCurrency(monthlyStats.cash, isBangla)}
                 </span>
               </div>
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
@@ -2931,7 +3007,7 @@ export default function App() {
                   {isBangla ? 'চলতি মাসের বাকি' : "This Month's Due"}
                 </span>
                 <span className="text-[17px] sm:text-lg font-black text-amber-600 block mt-1">
-                  {formatCurrency(monthlyStats.due, isBangla)}
+                  {isBalancesHidden ? '৳ ••••' : formatCurrency(monthlyStats.due, isBangla)}
                 </span>
               </div>
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
@@ -2939,7 +3015,7 @@ export default function App() {
                   {isBangla ? 'চলতি মাসের খরচ' : "This Month's Expenses"}
                 </span>
                 <span className="text-[17px] sm:text-lg font-black text-rose-600 block mt-1">
-                  {formatCurrency(monthlyStats.expense, isBangla)}
+                  {isBalancesHidden ? '৳ ••••' : formatCurrency(monthlyStats.expense, isBangla)}
                 </span>
               </div>
             </div>
@@ -3985,7 +4061,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className={`${(settingsSubTab === 'history' || settingsSubTab === 'memo') ? 'max-w-4xl' : 'max-w-xl'} mx-auto w-full px-4 py-4 space-y-5 transition-all duration-300`}
+            className={`${(settingsSubTab === 'history' || settingsSubTab === 'memo') ? 'max-w-7xl' : 'max-w-xl'} mx-auto w-full px-4 py-4 space-y-5 transition-all duration-300`}
           >
             {/* Settings Tab Navigation Header */}
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-3xs overflow-x-auto whitespace-nowrap scrollbar-none">
@@ -4455,7 +4531,7 @@ export default function App() {
                         {isBangla ? 'ঐ দিনের মোট বিক্রি' : 'Sales on Date'}
                       </span>
                       <span className="text-[17px] sm:text-lg font-black text-emerald-700 block mt-1">
-                        {formatCurrency(todaySales, isBangla)}
+                        {isBalancesHidden ? '৳ ••••' : formatCurrency(todaySales, isBangla)}
                       </span>
                     </div>
                     <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100">
@@ -4463,7 +4539,7 @@ export default function App() {
                         {isBangla ? 'নগদ জমা' : 'Cash Deposit'}
                       </span>
                       <span className="text-[17px] sm:text-lg font-black text-blue-700 block mt-1">
-                        {formatCurrency(todayCashDeposit, isBangla)}
+                        {isBalancesHidden ? '৳ ••••' : formatCurrency(todayCashDeposit, isBangla)}
                       </span>
                     </div>
                     <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100">
@@ -4471,7 +4547,7 @@ export default function App() {
                         {isBangla ? 'বাকি লেনদেন' : 'Dues Given'}
                       </span>
                       <span className="text-[17px] sm:text-lg font-black text-amber-700 block mt-1">
-                        {formatCurrency(todayDueTaken, isBangla)}
+                        {isBalancesHidden ? '৳ ••••' : formatCurrency(todayDueTaken, isBangla)}
                       </span>
                     </div>
                     <div className="bg-rose-50/50 p-3 rounded-xl border border-rose-100">
@@ -4479,10 +4555,150 @@ export default function App() {
                         {isBangla ? 'ঐ দিনের মোট খরচ' : 'Expenses on Date'}
                       </span>
                       <span className="text-[17px] sm:text-lg font-black text-rose-700 block mt-1">
-                        {formatCurrency(todayExpenseTotal, isBangla)}
+                        {isBalancesHidden ? '৳ ••••' : formatCurrency(todayExpenseTotal, isBangla)}
                       </span>
                     </div>
                   </div>
+                </div>
+
+                {/* All Sold Products History Section */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div>
+                      <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                        <span>📦</span>
+                        <span>{isBangla ? 'বিক্রিত মালের সম্পূর্ণ ইতিহাস' : 'Sold Products History'}</span>
+                      </h2>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {isBangla ? 'দোকানের শুরু থেকে বিক্রি হওয়া সকল পণ্যের তালিকা।' : 'All products sold from the beginning.'}
+                      </p>
+                    </div>
+                    
+                    <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100/50 px-2.5 py-1 rounded-full shrink-0">
+                      <span className="text-xs font-black text-indigo-700 font-sans">
+                        {isBangla ? toBanglaNumber(soldTransactions.length) : soldTransactions.length}
+                      </span>
+                      <span className="text-[10px] text-indigo-600/95 font-bold font-sans">
+                        {isBangla ? 'টি বিক্রি' : 'sales'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Search input for History */}
+                  <div className="relative w-full max-w-md mx-auto">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                      <Search className="h-4 w-4 text-indigo-500" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder={isBangla ? 'পণ্যের নাম বা ক্রেতার নাম দিয়ে খুঁজুন...' : 'Search by product or customer name...'}
+                      value={historySearchQuery}
+                      onChange={(e) => {
+                        setHistorySearchQuery(e.target.value);
+                        setIsHistoryExpanded(false); // reset expansion when searching
+                      }}
+                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/40 font-medium"
+                    />
+                  </div>
+
+                  {/* Sold products list/table */}
+                  {filteredSoldTransactions.length === 0 ? (
+                    <div className="text-center py-12 border border-dashed border-slate-150 rounded-xl bg-slate-50/50">
+                      <p className="text-slate-400 text-xs font-bold">
+                        {isBangla ? 'কোনো বিক্রিত মাল খুঁজে পাওয়া যায়নি।' : 'No sold products match your search.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className={`border border-slate-150 rounded-xl shadow-4xs bg-white transition-all duration-300 ${
+                        isHistoryExpanded ? 'max-h-[420px] overflow-auto' : 'overflow-x-auto'
+                      }`}>
+                        <table className="w-full text-left border-collapse text-xs table-fixed">
+                          <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-150">
+                            <tr className="text-slate-500 font-extrabold text-[10px] uppercase tracking-wider">
+                              <th className="py-2.5 px-3 w-[60%] sm:w-[70%] md:w-[76%]">{isBangla ? 'পণ্যের বিবরণ' : 'Product Details'}</th>
+                              <th className="py-2.5 px-3 w-[20%] sm:w-[15%] md:w-[12%] text-center">{isBangla ? 'ধরন' : 'Type'}</th>
+                              <th className="py-2.5 px-3 w-[20%] sm:w-[15%] md:w-[12%] text-right">{isBangla ? 'টাকা' : 'Amount'}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                            {(isHistoryExpanded ? filteredSoldTransactions : filteredSoldTransactions.slice(0, 7)).map((tx, idx) => (
+                              <tr 
+                                key={tx.id || idx} 
+                                className="hover:bg-indigo-50/20 transition-colors text-slate-700"
+                              >
+                                <td className="py-2.5 px-3 w-[60%] sm:w-[70%] md:w-[76%]">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="font-bold text-slate-900 text-[11.5px] sm:text-xs leading-snug break-words">
+                                      <span className="text-slate-400/80 mr-1.5 font-bold font-sans">
+                                        {isBangla ? toBanglaNumber(idx + 1) : idx + 1}.
+                                      </span>
+                                      {tx.product}
+                                    </span>
+                                    <div className="flex flex-wrap items-center gap-1 text-[9px] text-slate-400">
+                                      <span className="bg-slate-100 font-bold px-1.5 py-0.5 rounded text-[8.5px] font-sans whitespace-nowrap">
+                                        📅 {formatDate(tx.date, isBangla)}
+                                      </span>
+                                      {!tx.isCash && tx.customer && (
+                                        <span className="text-[8.5px] text-rose-600 font-extrabold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100/40 truncate max-w-[100px] sm:max-w-[150px]">
+                                          👤 {tx.customer}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3 text-center whitespace-nowrap w-[20%] sm:w-[15%] md:w-[12%]">
+                                  {tx.isCash ? (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] font-black bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-100">
+                                      {isBangla ? 'নগদ বিক্রি' : 'Cash'}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] font-black bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded border border-rose-100">
+                                      {isBangla ? 'বাকি বিক্রি' : 'Due'}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap w-[20%] sm:w-[15%] md:w-[12%]">
+                                  <span className="font-black text-slate-900 text-[11px] sm:text-xs font-sans">
+                                    {isBalancesHidden ? '৳ ••••' : formatCurrency(tx.amount, isBangla)}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Smooth See More / See Less Buttons */}
+                      {filteredSoldTransactions.length > 7 && (
+                        <div className="flex justify-center pt-3 border-t border-slate-100 mt-2 gap-3">
+                          {isHistoryExpanded ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsHistoryExpanded(false);
+                              }}
+                              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-3xs active:scale-95"
+                            >
+                              <span>{isBangla ? 'কম দেখুন' : 'See Less'}</span>
+                              <ChevronRight className="h-4 w-4 -rotate-90 text-slate-500" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsHistoryExpanded(true);
+                              }}
+                              className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow active:scale-95"
+                            >
+                              <span>{isBangla ? 'আরও দেখুন' : 'See More'}</span>
+                              <ChevronRight className="h-4 w-4 rotate-90" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

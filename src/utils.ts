@@ -80,3 +80,33 @@ export function formatCurrency(amount: number, isBangla: boolean): string {
 export function generateId(): string {
   return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 }
+
+/**
+ * Converts date string (YYYY-MM-DD) and 12h time string (HH:MM AM/PM) to milliseconds timestamp.
+ */
+export function getTimestamp(dateStr: string, timeStr?: string): number {
+  if (!dateStr) return 0;
+  
+  if (!timeStr) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day).getTime();
+  }
+  
+  // Parse timeStr like "03:45 PM" or "11:15 AM"
+  const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!match) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day).getTime();
+  }
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const ampm = match[3].toUpperCase();
+  
+  if (ampm === 'PM' && hours < 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day, hours, minutes).getTime();
+}
+
