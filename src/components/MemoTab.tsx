@@ -18,7 +18,7 @@ import {
   QrCode
 } from 'lucide-react';
 import { Transaction, ProductRateItem, MemoItem } from '../types';
-import { toBanglaNumber, formatDate, formatCurrency, generateId } from '../utils';
+import { toBanglaNumber, formatDate, formatCurrency, generateId, getVerificationBaseUrl } from '../utils';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { doc, setDoc } from 'firebase/firestore';
@@ -141,7 +141,7 @@ export default function MemoTab({
 
   // Auto-load QR code image object for canvas rendering
   useEffect(() => {
-    const verifyUrl = `${window.location.origin}?verify=${invoiceNo}`;
+    const verifyUrl = `${getVerificationBaseUrl()}?verify=${invoiceNo}`;
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(verifyUrl)}`;
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -989,7 +989,7 @@ export default function MemoTab({
               
               <div style="margin-top: 15px; display: flex; align-items: center; gap: 10px; border: 1px solid #e2e8f0; padding: 6px; border-radius: 8px; background: #fdfdfd; width: fit-content; max-width: 250px;">
                 <div style="border: 1px solid #0f766e; padding: 2px; background: white; border-radius: 4px; flex-shrink: 0;">
-                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`${window.location.origin}?verify=${invoiceNo}`)}" style="width: 50px; height: 50px; display: block;" />
+                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`${getVerificationBaseUrl()}?verify=${invoiceNo}`)}" style="width: 50px; height: 50px; display: block;" />
                 </div>
                 <div style="font-size: 8px; font-weight: bold; color: #475569; line-height: 1.3; font-style: normal; text-align: left;">
                   <span style="color: #0f766e; font-weight: 900; display: block; font-size: 9px; margin-bottom: 2px;">${isBangla ? 'সত্যতা যাচাই কিউআর' : 'Verification QR'}</span>
@@ -1672,7 +1672,7 @@ export default function MemoTab({
                   <div className="mt-2 flex items-center gap-2 border border-slate-100 p-1.5 bg-slate-50/50 rounded-xl">
                     <div className="relative border border-teal-700/20 p-1 bg-white rounded-lg inline-block shadow-3xs">
                       <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`${window.location.origin}?verify=${invoiceNo}`)}`}
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`${getVerificationBaseUrl()}?verify=${invoiceNo}`)}`}
                         alt="Verification QR Code"
                         className="h-14 w-14"
                         referrerPolicy="no-referrer"

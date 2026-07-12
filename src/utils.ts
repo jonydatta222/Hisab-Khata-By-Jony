@@ -108,3 +108,27 @@ export function getTimestamp(dateStr: string, timeStr?: string): number {
   return new Date(year, month - 1, day, hours, minutes).getTime();
 }
 
+/**
+ * Returns the correct base URL for verification links.
+ * Fallback to public web domains if running on localhost, Capacitor, or other local dev environments.
+ */
+export function getVerificationBaseUrl(): string {
+  if (typeof window === 'undefined') return '';
+  const origin = window.location.origin;
+  const isLocalhostOrCapacitor = 
+    origin.includes('localhost') || 
+    origin.includes('127.0.0.1') || 
+    origin.startsWith('capacitor://') || 
+    origin.startsWith('chrome-extension://') ||
+    origin.startsWith('file://');
+
+  if (isLocalhostOrCapacitor) {
+    const authServerType = localStorage.getItem('hisab_khata_auth_server_type') || 'dev';
+    return authServerType === 'pre'
+      ? 'https://ais-pre-ubhqkvzgdwmiuzrvrwvhgc-273317504244.asia-southeast1.run.app'
+      : 'https://ais-dev-ubhqkvzgdwmiuzrvrwvhgc-273317504244.asia-southeast1.run.app';
+  }
+  return origin;
+}
+
+
