@@ -205,6 +205,53 @@ export default function MemoTab({
     }
   };
 
+  const saveMemoToFirebaseSilent = async () => {
+    try {
+      if (!auth.currentUser) return;
+      const email = auth.currentUser.email;
+      if (!email) return;
+      const memoRef = doc(db, 'verified_memos', invoiceNo);
+      
+      const discountVal = parseFloat(discount) || 0;
+      const subTotal = items.reduce((sum, item) => sum + item.total, 0);
+      const netTotal = Math.max(0, subTotal - discountVal);
+      const paidVal = parseFloat(paid) || 0;
+      const dueVal = Math.max(0, netTotal - paidVal);
+
+      const verifiedTextStr = isBangla 
+        ? `নিশ্চিত ক্যাশ মেমো! দোকান: ${memoShopName}, রশিদ নং: ${invoiceNo}, তারিখ: ${formatDate(memoDate, true)}, ক্রেতা: ${customerName || 'সাধারণ ক্রেতা'}, সর্বমোট মূল্য: ৳${netTotal}, পরিশোধ: ৳${paidVal}, বকেয়া: ৳${dueVal}।`
+        : `Verified Invoice! Shop: ${memoShopName}, Inv No: ${invoiceNo}, Date: ${formatDate(memoDate, false)}, Customer: ${customerName || 'General Customer'}, Total Amount: ৳${netTotal}, Paid: ৳${paidVal}, Due: ৳${dueVal}.`;
+
+      const payload = {
+        invoiceNo,
+        shopName: memoShopName,
+        customerName: customerName || (isBangla ? 'সাধারণ ক্রেতা' : 'General Customer'),
+        customerPhone: customerPhone || '',
+        date: memoDate,
+        subTotal: subTotal,
+        discount: discountVal,
+        netTotal: netTotal,
+        paid: paidVal,
+        due: dueVal,
+        items: items.map(it => ({
+          name: it.name,
+          quantity: it.quantity,
+          rate: it.rate,
+          total: it.total,
+          unit: it.unit
+        })),
+        verifiedText: verifiedTextStr,
+        createdBy: email,
+        createdAt: Date.now()
+      };
+
+      await setDoc(memoRef, payload, { merge: true });
+      setIsCloudSaved(true);
+    } catch (err) {
+      console.error("Silent cloud memo save failed:", err);
+    }
+  };
+
   const unitsList = isBangla 
     ? ['পিছ', 'কেজি', 'গ্রাম', 'লিটার', 'গজ', 'ফুট', 'ব্যাগ', 'প্যাকেট', 'ডজন', 'টি', 'বস্তা', 'লিঃ']
     : ['pcs', 'kg', 'g', 'L', 'yd', 'ft', 'bag', 'pkt', 'doz', 'pcs', 'sack', 'Ltr'];
@@ -634,6 +681,7 @@ export default function MemoTab({
   };
 
   const downloadJPG = async () => {
+    saveMemoToFirebaseSilent();
     const canvas = canvasRef.current;
     if (!canvas) return;
     drawMemoOnCanvas(canvas, memoSize);
@@ -654,6 +702,7 @@ export default function MemoTab({
   };
 
   const downloadPDF = async () => {
+    saveMemoToFirebaseSilent();
     const canvas = canvasRef.current;
     if (!canvas) return;
     

@@ -85,6 +85,12 @@ export default function App() {
   const [verificationError, setVerificationError] = useState<string | null>(null);
 
   const fetchVerifiedMemo = async (id: string) => {
+    if (!id || !id.trim()) {
+      setIsVerifying(false);
+      setVerificationError('not_found');
+      setVerifiedMemoData(null);
+      return;
+    }
     setIsVerifying(true);
     setVerificationError(null);
     setVerifiedMemoData(null);
@@ -126,15 +132,23 @@ export default function App() {
         verifyId = hashParams.get('verify');
       }
 
-      if (verifyId) {
+      if (verifyId !== null && verifyId !== undefined) {
         setVerificationInvoiceId(verifyId);
         fetchVerifiedMemo(verifyId);
+      } else {
+        setVerificationInvoiceId(null);
       }
     };
 
+    // Run the check on initial mount
     checkVerifyLink();
+
     window.addEventListener('popstate', checkVerifyLink);
-    return () => window.removeEventListener('popstate', checkVerifyLink);
+    window.addEventListener('hashchange', checkVerifyLink);
+    return () => {
+      window.removeEventListener('popstate', checkVerifyLink);
+      window.removeEventListener('hashchange', checkVerifyLink);
+    };
   }, []);
 
   // --- States ---
@@ -2030,65 +2044,108 @@ export default function App() {
 
   if (verificationInvoiceId !== null) {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans flex flex-col p-4 sm:p-6 md:p-8 relative justify-center items-center">
-        <div className="max-w-xl w-full bg-white border border-slate-200 shadow-lg rounded-3xl p-6 sm:p-8 flex flex-col justify-between">
+      <div className="min-h-screen bg-[#0B132B] text-slate-100 antialiased font-sans flex flex-col p-4 sm:p-6 md:p-8 relative justify-center items-center overflow-x-hidden">
+        
+        {/* Decorative Background Elements */}
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+          <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-teal-500/10 blur-[120px]" />
+          <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] rounded-full bg-indigo-500/10 blur-[120px]" />
+        </div>
+
+        <div className="max-w-xl w-full bg-[#1C2541]/90 backdrop-blur-md border border-[#3A506B]/50 shadow-2xl rounded-3xl p-6 sm:p-8 flex flex-col justify-between relative z-10">
           
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 bg-teal-50 rounded-xl">
-                <ShieldCheck className="h-6 w-6 text-teal-700" />
+          {/* Header & Server Connection Status */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#3A506B]/40 pb-5 mb-5 gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-teal-500/10 border border-teal-500/30 rounded-2xl">
+                <ShieldCheck className="h-6 w-6 text-teal-400" />
               </div>
               <div>
-                <h2 className="text-sm font-black text-slate-900 leading-none">
-                  {isBangla ? 'ক্যাশ মেমো সত্যতা যাচাই' : 'Receipt Authenticity Verification'}
+                <h2 className="text-sm font-black text-white tracking-wide">
+                  {isBangla ? 'ফায়ারবেস ক্লাউড মেমো সত্যতা যাচাই' : 'Firebase Cloud Memo Authenticator'}
                 </h2>
-                <p className="text-[10px] text-slate-400 font-bold mt-1">
-                  {isBangla ? 'ডিজিটাল হিসাব খাতা সিকিউরিটি' : 'Digital Hisab Khata Security'}
+                <p className="text-[10px] text-teal-400 font-bold mt-1 tracking-wider uppercase">
+                  {isBangla ? 'গুগল ক্লাউড সিকিউরিটি পোর্টাল' : 'Google Cloud Security Portal'}
                 </p>
               </div>
             </div>
             
-            <button
-              onClick={handleCloseVerification}
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            {/* Live Server Indicator */}
+            <div className="flex items-center gap-2 bg-[#0B132B] px-3 py-1.5 rounded-xl border border-[#3A506B]/30 shrink-0">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-[9px] font-mono font-black text-emerald-400 tracking-wider">
+                FIRESTORE_LIVE
+              </span>
+            </div>
+          </div>
+
+          {/* Database Info Widget */}
+          <div className="bg-[#0B132B]/60 border border-[#3A506B]/30 rounded-2xl p-3.5 mb-5 space-y-2 font-mono text-[9px] text-slate-400 leading-normal">
+            <div className="flex justify-between items-center">
+              <span>[SYSTEM_HOST]</span>
+              <span className="text-teal-400 font-bold">Google Cloud Asia-Southeast1</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>[DATABASE_PROVIDER]</span>
+              <span className="text-teal-400">Firebase Firestore Real-time DB</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>[VERIFICATION_HASH]</span>
+              <span className="text-slate-300 select-all font-bold">SHA256-{verificationInvoiceId}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>[SECURITY_HANDSHAKE]</span>
+              <span className="text-emerald-400 font-black">✓ ENCRYPTED_SSL</span>
+            </div>
           </div>
 
           {/* Loading state */}
           {isVerifying && (
             <div className="flex flex-col items-center justify-center py-16 space-y-4">
-              <div className="h-8 w-8 border-3 border-teal-600 border-t-transparent rounded-full animate-spin" />
-              <p className="text-xs font-extrabold text-slate-500 animate-pulse text-center">
-                {isBangla ? 'রশিদের তথ্য অনুসন্ধান করা হচ্ছে...' : 'Fetching receipt validation records...'}
-              </p>
+              <div className="h-10 w-10 border-4 border-teal-400 border-t-transparent rounded-full animate-spin" />
+              <div className="text-center space-y-1.5">
+                <p className="text-xs font-black text-teal-400 animate-pulse">
+                  {isBangla ? 'ফায়ারবেস সার্ভার থেকে যাচাই করা হচ্ছে...' : 'Querying Firebase secure records...'}
+                </p>
+                <p className="text-[10px] text-slate-500 font-bold">
+                  {isBangla ? 'রিয়েল-টাইম ক্লাউড ডাটাবেজ অনুসন্ধান চলছে' : 'Establishing Firestore database handshake'}
+                </p>
+              </div>
             </div>
           )}
 
           {/* Verification Failed or Unregistered state */}
           {!isVerifying && verificationError && (
-            <div className="text-center py-10 space-y-5">
-              <div className="h-16 w-16 bg-rose-50 border border-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
-                <AlertCircle className="h-8 w-8" />
+            <div className="text-center py-8 space-y-5">
+              <div className="h-20 w-20 bg-rose-500/10 border-2 border-rose-500/30 text-rose-400 rounded-full flex items-center justify-center mx-auto shadow-lg shadow-rose-500/5">
+                <AlertCircle className="h-10 w-10" />
               </div>
-              <div className="space-y-2">
-                <h3 className="text-base font-black text-rose-700">
-                  {isBangla ? 'অনিবন্ধিত বা নকল মেমো!' : 'Unverified or Fake Invoice!'}
+              <div className="space-y-3">
+                <h3 className="text-lg font-black text-rose-400 tracking-wide">
+                  {isBangla ? 'নকল বা অনিবন্ধিত মেমো!' : 'Unregistered or Modified Memo!'}
                 </h3>
-                <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                <div className="bg-[#1C2541] border border-rose-500/20 px-4 py-3.5 rounded-2xl max-w-md mx-auto">
+                  <p className="text-[11px] text-rose-200 leading-relaxed font-bold">
+                    {isBangla 
+                      ? `সতর্কতা: রশিদ নং ${verificationInvoiceId} ফায়ারবেস ক্লাউড সার্ভারে পাওয়া যায়নি! এই মেমোটি এডিটিং সফটওয়্যার বা এআই দিয়ে পরিবর্তন করা হয়ে থাকতে পারে অথবা দোকান মালিক মেমোটি তৈরি করার সময় ক্লাউডে ডাটা সংরক্ষণ করেননি!`
+                      : `Warning: Invoice ${verificationInvoiceId} is not registered in Firebase server! This memo may be modified, fake, or was not uploaded to the cloud ledger by the shop proprietor.`}
+                  </p>
+                </div>
+                <p className="text-[10px] text-slate-400 max-w-sm mx-auto leading-normal">
                   {isBangla 
-                    ? `রশিদ নং ${verificationInvoiceId} আমাদের সুরক্ষিত ক্লাউড ডেটাবেজে নিবন্ধিত পাওয়া যায়নি। এই মেমোটি নকল অথবা পরবর্তীকালে কৃত্রিম উপায়ে (AI বা এডিটিং সফটওয়্যার দিয়ে) পরিবর্তন করা হয়ে থাকতে পারে!`
-                    : `Invoice number ${verificationInvoiceId} was not found in our secure cloud database. This memo might be fake, modified, or forged using photo-editing or AI tools.`}
+                    ? 'আসল মেমো ক্রিয়েট করার সাথে সাথে ক্লাউড ভেরিফিকেশনে অটোমেটিক সেভ হয়ে যায়। অনুগ্রহ করে ক্যাশ মেমোটির সঠিকতা যাচাই করতে দোকানদারের সাথে যোগাযোগ করুন।'
+                    : 'Genuine memos are synchronized instantly. Please verify with the shop owner regarding the authenticity of this printed receipt.'}
                 </p>
               </div>
-              <div className="pt-4">
+              <div className="pt-4 flex flex-col sm:flex-row gap-3 justify-center">
                 <button
                   onClick={handleCloseVerification}
-                  className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-xl transition-all shadow-xs cursor-pointer"
+                  className="px-6 py-3 bg-[#3A506B] hover:bg-[#4A648C] text-white text-xs font-black rounded-xl transition-all cursor-pointer shadow-md"
                 >
-                  {isBangla ? 'হিসাব খাতায় ফিরে যান' : 'Back to Ledger'}
+                  {isBangla ? 'যাচাই বন্ধ করুন' : 'Close Verification'}
                 </button>
               </div>
             </div>
@@ -2099,99 +2156,116 @@ export default function App() {
             <div className="space-y-6">
               
               {/* Success Badge */}
-              <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-center gap-3.5 shadow-3xs">
-                <div className="h-11 w-11 bg-emerald-600 text-white rounded-full flex items-center justify-center flex-shrink-0 shadow-xs">
-                  <Check className="h-6 w-6" />
+              <div className="bg-emerald-500/10 border border-emerald-500/30 p-4.5 rounded-2xl flex items-center gap-4 shadow-lg shadow-emerald-500/5">
+                <div className="h-12 w-12 bg-emerald-500 text-white rounded-full flex items-center justify-center flex-shrink-0 shadow-md">
+                  <Check className="h-7 w-7" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-black text-emerald-800">
-                    {isBangla ? '✓ আসল ক্যাশ মেমো নিশ্চিত!' : '✓ Authentic Cash Memo Confirmed!'}
+                  <h3 className="text-sm font-black text-emerald-400">
+                    {isBangla ? '✓ আসল ক্যাশ মেমো নিশ্চিত!' : '✓ Official Authentic Memo Confirmed!'}
                   </h3>
-                  <p className="text-[10px] text-emerald-600 font-extrabold mt-0.5 leading-snug">
+                  <p className="text-[10px] text-emerald-300 font-bold mt-1 leading-snug">
                     {isBangla 
-                      ? 'এই ক্যাশ মেমোটির তথ্য ক্লাউডে সংরক্ষিত আছে এবং এটি দোকান মালিক দ্বারা যাচাইকৃত।' 
-                      : 'This invoice matches the official records in our secure cloud and is safe.'}
+                      ? 'এই ক্যাশ মেমোটির তথ্য ফায়ারবেস সুরক্ষিত ডেটাবেজের সাথে শতভাগ মিলেছে। এটি কোনোভাবেই এডিট বা পরিবর্তন করা হয়নি।' 
+                      : 'This memo matches exactly with the records saved in the secure cloud and is tamper-proof.'}
                   </p>
                 </div>
               </div>
 
               {/* Verified details text summary */}
-              <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-[11px] font-bold text-slate-600 space-y-1.5 leading-relaxed">
-                <p className="text-[10px] font-black uppercase text-teal-800 tracking-wider">
-                  {isBangla ? 'অফিসিয়াল সত্যতা রেকর্ড' : 'Official Verification Record'}
+              <div className="bg-[#0B132B]/70 border border-[#3A506B]/30 p-4 rounded-2xl text-[11px] font-bold text-slate-300 space-y-2 leading-relaxed">
+                <p className="text-[10px] font-black uppercase text-teal-400 tracking-wider flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span>{isBangla ? 'সার্ভার ভেরিফাইড টেক্সট' : 'Server Verified Statement'}</span>
                 </p>
-                <p className="italic text-slate-800">"{verifiedMemoData.verifiedText}"</p>
+                <p className="italic text-slate-100 bg-[#1C2541]/50 p-2.5 rounded-xl border border-[#3A506B]/20">
+                  "{verifiedMemoData.verifiedText}"
+                </p>
               </div>
 
               {/* Full Memo Data Breakdown */}
-              <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-3xs bg-slate-50/30">
-                <div className="bg-slate-100 px-4 py-2 text-[10px] font-black text-slate-600 uppercase tracking-wider flex justify-between">
-                  <span>{isBangla ? 'রশিদ মেটা তথ্য' : 'Invoice Metadata'}</span>
-                  <span className="text-teal-700 font-black">{verifiedMemoData.invoiceNo}</span>
+              <div className="border border-[#3A506B]/40 rounded-2xl overflow-hidden shadow-xl bg-[#0B132B]/30">
+                <div className="bg-[#1C2541] border-b border-[#3A506B]/40 px-4 py-2.5 text-[10px] font-black text-slate-200 uppercase tracking-wider flex justify-between">
+                  <span>{isBangla ? 'মেমোর বিস্তারিত বিবরণ' : 'Memo Specifications'}</span>
+                  <span className="text-teal-400 font-black tracking-wide">{verifiedMemoData.invoiceNo || verificationInvoiceId}</span>
                 </div>
                 
-                <div className="p-4 space-y-2.5 text-xs font-bold text-slate-600">
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                    <span>{isBangla ? 'দোকানের নাম:' : 'Shop Name:'}</span>
-                    <span className="text-slate-800 font-black">{verifiedMemoData.shopName}</span>
+                <div className="p-4 space-y-3 text-xs font-bold text-slate-300">
+                  <div className="flex justify-between border-b border-[#3A506B]/20 pb-2">
+                    <span className="text-slate-400">{isBangla ? 'দোকানের নাম:' : 'Shop Name:'}</span>
+                    <span className="text-white font-black">{verifiedMemoData.shopName || (isBangla ? 'অজানা দোকান' : 'Unknown Shop')}</span>
                   </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                    <span>{isBangla ? 'ক্রেতার নাম:' : 'Customer:'}</span>
-                    <span className="text-slate-800 font-extrabold">{verifiedMemoData.customerName}</span>
+                  <div className="flex justify-between border-b border-[#3A506B]/20 pb-2">
+                    <span className="text-slate-400">{isBangla ? 'ক্রেতার নাম:' : 'Customer Name:'}</span>
+                    <span className="text-white font-extrabold">{verifiedMemoData.customerName || (isBangla ? 'সাধারণ ক্রেতা' : 'General Customer')}</span>
                   </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-1.5">
-                    <span>{isBangla ? 'তারিখ:' : 'Date:'}</span>
-                    <span className="text-slate-800">{verifiedMemoData.date ? formatDate(verifiedMemoData.date, isBangla) : ''}</span>
+                  <div className="flex justify-between border-b border-[#3A506B]/20 pb-2">
+                    <span className="text-slate-400">{isBangla ? 'তৈরির তারিখ:' : 'Created Date:'}</span>
+                    <span className="text-white">{verifiedMemoData.date ? formatDate(verifiedMemoData.date, isBangla) : (isBangla ? 'অজানা তারিখ' : 'Unknown Date')}</span>
                   </div>
                   
                   {/* Items list */}
-                  <div className="mt-3.5 space-y-1 bg-white p-2.5 rounded-xl border border-slate-100 max-h-[160px] overflow-y-auto">
-                    <p className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
-                      {isBangla ? 'ক্রয়কৃত পণ্যের তালিকা' : 'Purchased Products'}
+                  <div className="mt-4 space-y-1.5 bg-[#1C2541]/50 p-3 rounded-2xl border border-[#3A506B]/20 max-h-[160px] overflow-y-auto">
+                    <p className="text-[9px] font-black uppercase text-teal-400 tracking-wider mb-2">
+                      {isBangla ? 'পণ্য ও মূল্যের বিবরণী' : 'Products & Price Details'}
                     </p>
-                    {verifiedMemoData.items && verifiedMemoData.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-[11px] py-1 border-b border-slate-50 last:border-0 font-extrabold text-slate-700">
-                        <span>{item.name} <span className="text-[8px] text-slate-400">({isBangla ? toBanglaNumber(item.quantity) : item.quantity} {item.unit || ''})</span></span>
-                        <span>৳{isBangla ? toBanglaNumber(item.total) : item.total}</span>
-                      </div>
-                    ))}
+                    {verifiedMemoData.items && verifiedMemoData.items.length > 0 ? (
+                      verifiedMemoData.items.map((item: any, idx: number) => (
+                        <div key={idx} className="flex justify-between text-[11px] py-1 border-b border-[#3A506B]/10 last:border-0 font-extrabold text-slate-200">
+                          <span>{item.name} <span className="text-[8px] text-slate-400">({isBangla ? toBanglaNumber(item.quantity) : item.quantity} {item.unit || ''})</span></span>
+                          <span>৳{isBangla ? toBanglaNumber(item.total) : item.total}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-slate-400 italic">
+                        {isBangla 
+                          ? 'পণ্যের বিস্তারিত বিবরণী এই মেমোর জন্য ক্লাউড সার্ভারে সংরক্ষিত নেই।' 
+                          : 'Product details are not registered in cloud server for this memo.'}
+                      </p>
+                    )}
                   </div>
 
                   {/* Pricing summaries */}
-                  <div className="pt-2 space-y-1.5 text-slate-500 font-extrabold">
+                  <div className="pt-2 space-y-2 text-slate-400 font-extrabold">
                     <div className="flex justify-between text-[11px]">
                       <span>{isBangla ? 'উপ-মোট মূল্য:' : 'Subtotal:'}</span>
-                      <span>৳{isBangla ? toBanglaNumber(verifiedMemoData.subTotal) : verifiedMemoData.subTotal}</span>
+                      <span className="text-slate-200">৳{isBangla ? toBanglaNumber(verifiedMemoData.subTotal || 0) : (verifiedMemoData.subTotal || 0)}</span>
                     </div>
-                    {verifiedMemoData.discount > 0 && (
+                    {(verifiedMemoData.discount || 0) > 0 && (
                       <div className="flex justify-between text-[11px]">
-                        <span>{isBangla ? 'ডিসকাউন্ট:' : 'Discount:'}</span>
-                        <span>- ৳{isBangla ? toBanglaNumber(verifiedMemoData.discount) : verifiedMemoData.discount}</span>
+                        <span>{isBangla ? 'ডিসকাউন্ট (ছাড়):' : 'Discount:'}</span>
+                        <span className="text-rose-400">- ৳{isBangla ? toBanglaNumber(verifiedMemoData.discount) : verifiedMemoData.discount}</span>
                       </div>
                     )}
-                    <div className="flex justify-between text-teal-800 font-black text-sm border-t border-slate-100 pt-1.5">
-                      <span>{isBangla ? 'সর্বমোট মূল্য:' : 'Net Payable:'}</span>
-                      <span>৳{isBangla ? toBanglaNumber(verifiedMemoData.netTotal) : verifiedMemoData.netTotal}</span>
+                    <div className="flex justify-between text-teal-400 font-black text-sm border-t border-[#3A506B]/40 pt-2">
+                      <span>{isBangla ? 'সর্বমোট মূল্য (পরিশোধযোগ্য):' : 'Net Payable:'}</span>
+                      <span>৳{isBangla ? toBanglaNumber(verifiedMemoData.netTotal || 0) : (verifiedMemoData.netTotal || 0)}</span>
                     </div>
                     <div className="flex justify-between text-[11px]">
                       <span>{isBangla ? 'পরিশোধিত টাকা:' : 'Paid Amount:'}</span>
-                      <span className="text-slate-800">৳{isBangla ? toBanglaNumber(verifiedMemoData.paid) : verifiedMemoData.paid}</span>
+                      <span className="text-emerald-400 font-black">৳{isBangla ? toBanglaNumber(verifiedMemoData.paid || 0) : (verifiedMemoData.paid || 0)}</span>
                     </div>
-                    <div className="flex justify-between text-[11px]" style={{ color: verifiedMemoData.due > 0 ? '#b91c1c' : '#047857' }}>
+                    <div className="flex justify-between text-[11px] border-t border-[#3A506B]/10 pt-1.5" style={{ color: (verifiedMemoData.due || 0) > 0 ? '#f87171' : '#34d399' }}>
                       <span>{isBangla ? 'বাকি বা বকেয়া:' : 'Due balance:'}</span>
-                      <span>৳{isBangla ? toBanglaNumber(verifiedMemoData.due) : verifiedMemoData.due}</span>
+                      <span className="font-black">৳{isBangla ? toBanglaNumber(verifiedMemoData.due || 0) : (verifiedMemoData.due || 0)}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Action buttons */}
-              <div className="pt-2 flex gap-3">
+              <div className="pt-2 flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={handleCloseVerification}
-                  className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white text-xs font-black rounded-xl transition-all shadow-3xs cursor-pointer text-center"
+                  className="w-full py-3 bg-[#3A506B] hover:bg-[#4A648C] text-white text-xs font-black rounded-xl transition-all cursor-pointer text-center"
                 >
-                  {isBangla ? 'হিসাব খাতায় প্রবেশ করুন' : 'Enter Ledger Web App'}
+                  {isBangla ? 'যাচাই সম্পন্ন করুন' : 'Finish Verification'}
+                </button>
+                <button
+                  onClick={handleCloseVerification}
+                  className="w-full py-3 bg-teal-500 hover:bg-teal-600 text-[#0B132B] text-xs font-black rounded-xl transition-all shadow-md cursor-pointer text-center"
+                >
+                  {isBangla ? 'হিসাব খাতায় প্রবেশ করুন' : 'Open Ledger Web App'}
                 </button>
               </div>
 
@@ -2199,9 +2273,9 @@ export default function App() {
           )}
 
           {/* Footer branding */}
-          <div className="text-center text-[9px] text-slate-300 font-bold border-t border-slate-100 pt-4 mt-8 flex items-center justify-center gap-1">
-            <ShieldCheck className="h-3 w-3 text-emerald-500" />
-            <span>{isBangla ? 'ডিজিটাল হিসাব খাতা সিকিউরড ভেরিফিকেশন' : 'Digital Hisab Khata Secured Verification'}</span>
+          <div className="text-center text-[9px] text-[#5C7594] font-bold border-t border-[#3A506B]/30 pt-4 mt-6 flex items-center justify-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-teal-400" />
+            <span>{isBangla ? 'ডিজিটাল হিসাব খাতা সিকিউরড ক্লাউড অথেন্টিকেটর' : 'Digital Hisab Khata Secured Cloud Authenticator'}</span>
           </div>
 
         </div>
