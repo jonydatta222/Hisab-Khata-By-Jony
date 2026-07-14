@@ -68,6 +68,8 @@ import {
 // Native Capacitor Chrome Custom Tabs & Deep Linking callback imports
 import { Browser } from '@capacitor/browser';
 import { App as CapApp } from '@capacitor/app';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 
 import logoPng from './assets/logo.png';
 import logoImg from './assets/logo.jpg';
@@ -1899,7 +1901,7 @@ export default function App() {
   const popularProducts = isBangla ? popularBanglaProducts : popularEnglishProducts;
 
   // --- Export and Import backup files (JSON) ---
-  const handleExportBackup = () => {
+  const handleExportBackup = async () => {
     const backupData = {
       transactions,
       expenses,
@@ -1913,16 +1915,49 @@ export default function App() {
     // Save to local device memory (localStorage)
     localStorage.setItem('hisab_khata_local_memory_backup', backupStr);
 
-    const blob = new Blob([backupStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `hisab_khata_backup_${selectedDate}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast(isBangla ? 'ফোনের মেমোরিতে লোকাল ব্যাকআপ সেভ হয়েছে এবং ফাইল ডাউনলোড শুরু হয়েছে!' : 'Backup saved in phone memory and download started!');
+    const fileName = `hisab_khata_backup_${selectedDate}.json`;
+
+    if (isCapacitor) {
+      try {
+        const base64Data = btoa(unescape(encodeURIComponent(backupStr)));
+        const writeResult = await Filesystem.writeFile({
+          path: fileName,
+          data: base64Data,
+          directory: Directory.Cache,
+        });
+
+        await Share.share({
+          title: isBangla ? 'হিসাব খাতা ব্যাকআপ ফাইল' : 'Hisab Khata Backup File',
+          text: isBangla ? 'হিসাব খাতার ব্যাকআপ ফাইল সংরক্ষণ অথবা শেয়ার করুন' : 'Save or share Hisab Khata backup file',
+          url: writeResult.uri,
+          dialogTitle: isBangla ? 'ব্যাকআপ ফাইল সংরক্ষণ/শেয়ার করুন' : 'Save/Share Backup File',
+        });
+
+        showToast(isBangla ? 'ব্যাকআপ ফাইল সফলভাবে ফোনে সেভ হয়েছে এবং শেয়ার করার জন্য প্রস্তুত!' : 'Backup file successfully saved on phone and ready to save/share!');
+      } catch (error: any) {
+        const errorStr = String(error).toLowerCase();
+        const isCanceled = errorStr.includes('cancel') || errorStr.includes('canceled') || errorStr.includes('cancelled');
+        
+        if (isCanceled) {
+          console.log('Share action was canceled by user/system.');
+          showToast(isBangla ? 'ব্যাকআপ ফাইল শেয়ার করা বাতিল করা হয়েছে।' : 'Backup file sharing cancelled.');
+        } else {
+          console.error('Failed to save or share backup file via Capacitor:', error);
+          showToast(isBangla ? 'ব্যাকআপ ফাইল ফোনে সেভ বা শেয়ার করতে সমস্যা হয়েছে!' : 'Error saving or sharing backup file!');
+        }
+      }
+    } else {
+      const blob = new Blob([backupStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(isBangla ? 'ফোনের মেমোরিতে লোকাল ব্যাকআপ সেভ হয়েছে এবং ফাইল ডাউনলোড শুরু হয়েছে!' : 'Backup saved in phone memory and download started!');
+    }
   };
 
   const handleImportClick = () => {
