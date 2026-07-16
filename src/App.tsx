@@ -1043,6 +1043,129 @@ export default function App() {
     };
   }, [currentNavTab]);
 
+  // --- Android Hardware Back Button Handler ---
+  useEffect(() => {
+    if (!isCapacitor) return;
+
+    let lastBackPressed = 0;
+
+    const backButtonListener = CapApp.addListener('backButton', () => {
+      // 1. First, check if any modals or overlays are open and close them in order
+      if (isCalcOpen) {
+        setIsCalcOpen(false);
+        return;
+      }
+      if (isExpenseModalOpen) {
+        setIsExpenseModalOpen(false);
+        return;
+      }
+      if (isDueListModalOpen) {
+        setIsDueListModalOpen(false);
+        return;
+      }
+      if (selectedCustomerForDetail !== null) {
+        setSelectedCustomerForDetail(null);
+        return;
+      }
+      if (isOutOfStockModalOpen) {
+        setIsOutOfStockModalOpen(false);
+        return;
+      }
+      if (isProductRateModalOpen) {
+        setIsProductRateModalOpen(false);
+        return;
+      }
+      if (activeProfitCalcProduct !== null) {
+        setActiveProfitCalcProduct(null);
+        return;
+      }
+      if (isAddDueModalOpen) {
+        setIsAddDueModalOpen(false);
+        return;
+      }
+      if (isSyncModalOpen) {
+        setIsSyncModalOpen(false);
+        return;
+      }
+      if (isRestoreChoiceModalOpen) {
+        setIsRestoreChoiceModalOpen(false);
+        return;
+      }
+      if (isDeleteDateModalOpen) {
+        setIsDeleteDateModalOpen(false);
+        return;
+      }
+      if (isOthersModalOpen) {
+        setIsOthersModalOpen(false);
+        return;
+      }
+      if (depositingCustomerName !== null) {
+        setDepositingCustomerName(null);
+        return;
+      }
+      if (syncConflictData !== null) {
+        setSyncConflictData(null);
+        return;
+      }
+      if (confirmModal !== null) {
+        setConfirmModal(null);
+        return;
+      }
+      if (weeklyDetailModal !== null) {
+        setWeeklyDetailModal(null);
+        return;
+      }
+      if (selectedProductForDetail !== null) {
+        setSelectedProductForDetail(null);
+        return;
+      }
+
+      // 2. Second, if not on home tab, go to home
+      if (currentNavTab !== 'home') {
+        setCurrentNavTab('home');
+        return;
+      }
+
+      // 3. Third, if on home tab, do a double-tap/double-press to exit warning
+      const currentTimeStamp = Date.now();
+      if (currentTimeStamp - lastBackPressed < 2000) {
+        CapApp.exitApp();
+      } else {
+        lastBackPressed = currentTimeStamp;
+        showToast(
+          isBangla 
+            ? 'অ্যাপ থেকে বের হতে চাইলে আবার ব্যাক বাটন চাপুন' 
+            : 'Press Back again to exit the app'
+        );
+      }
+    });
+
+    return () => {
+      backButtonListener.then((listener) => listener.remove());
+    };
+  }, [
+    isCapacitor,
+    isBangla,
+    currentNavTab,
+    isCalcOpen,
+    isExpenseModalOpen,
+    isDueListModalOpen,
+    selectedCustomerForDetail,
+    isOutOfStockModalOpen,
+    isProductRateModalOpen,
+    activeProfitCalcProduct,
+    isAddDueModalOpen,
+    isSyncModalOpen,
+    isRestoreChoiceModalOpen,
+    isDeleteDateModalOpen,
+    isOthersModalOpen,
+    depositingCustomerName,
+    syncConflictData,
+    confirmModal,
+    weeklyDetailModal,
+    selectedProductForDetail
+  ]);
+
   const handleNavTabChange = (tab: 'home' | 'info' | 'monthly' | 'settings') => {
     setCurrentNavTab(tab);
     if (tab !== 'home') {
@@ -1706,6 +1829,12 @@ export default function App() {
     const dayCountMap: Record<number, number> = {};
 
     weeklyTxs.forEach(tx => {
+      // Exclude product named "নগদ" / Cash / Nogod from Peak Hour and Day Analysis
+      const prodLower = tx.product.toLowerCase().trim();
+      if (prodLower === 'নগদ' || prodLower === 'nogod' || prodLower === 'cash' || prodLower === 'নগদ হিসাব') {
+        return;
+      }
+
       const h = parseHourStr(tx.time);
       if (h !== null) {
         hourAmountMap[h] = (hourAmountMap[h] || 0) + tx.amount;
@@ -2567,7 +2696,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-slate-800 antialiased font-sans flex flex-col pb-24 relative overflow-x-hidden">
+    <div className="min-h-screen bg-[#F8F9FA] text-slate-800 antialiased font-sans flex flex-col pb-28 relative overflow-x-hidden">
       
       {/* --- Fixed Top Area (Progress Bar + Header) --- */}
       <div className="fixed top-0 left-0 right-0 z-40 flex flex-col shadow-xs border-b border-slate-100">
@@ -2601,7 +2730,7 @@ export default function App() {
                 src={logoPngWithCache}
                 onError={handleLogoError}
                 alt="হিসাব খাতা"
-                className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl object-cover shadow-sm border border-slate-200/60 shrink-0 transition-transform duration-250 active:scale-95"
+                className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl object-cover shadow-sm border border-slate-200/60 shrink-0 transition-transform duration-[270ms] active:scale-95"
                 referrerPolicy="no-referrer"
               />
               <div className="flex flex-col min-w-0 gap-0.5 sm:gap-1.5">
@@ -2623,9 +2752,30 @@ export default function App() {
                 </div>
                 
                 {/* Real-time formatted Date & Time like screenshot (e.g. ১১:২৮ AM | বুধবার ১৫/০৭/২০২৬) */}
-                <span className="text-[11px] sm:text-sm font-bold text-slate-700 tracking-tight leading-tight whitespace-nowrap">
-                  {headerDateTimeStr}
-                </span>
+                {headerDateTimeStr && (
+                  <div className="flex flex-wrap items-center gap-x-1 sm:gap-x-1.5 gap-y-0.5 text-slate-700 tracking-tight leading-none" id="header-datetime-container">
+                    {headerDateTimeStr.includes(' | ') ? (
+                      <>
+                        <span className="text-[10px] sm:text-xs font-black text-slate-700 flex items-baseline gap-0.5" id="header-time-part">
+                          <span>{headerDateTimeStr.split(' | ')[0].split(' ')[0]}</span>
+                          {headerDateTimeStr.split(' | ')[0].split(' ')[1] && (
+                            <span className="text-[8px] sm:text-[9.5px] font-bold text-slate-500 uppercase tracking-wider ml-0.5 select-none">
+                              {headerDateTimeStr.split(' | ')[0].split(' ')[1]}
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-slate-300 text-[10px] sm:text-xs hidden sm:inline select-none">|</span>
+                        <span className="text-[10px] sm:text-xs font-bold text-slate-500" id="header-date-part">
+                          {headerDateTimeStr.split(' | ')[1]}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[10px] sm:text-xs font-bold text-slate-700" id="header-datetime-fallback">
+                        {headerDateTimeStr}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Shop Name row */}
                 <span className="text-[9px] sm:text-xs font-black text-slate-400 truncate max-w-[120px] sm:max-w-[250px] leading-tight" id="shop-name-title">
@@ -2805,35 +2955,41 @@ export default function App() {
               {/* 1. Add Transaction Form Card */}
               <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs">
                 <div className="grid grid-cols-3 gap-1.5 mb-4 pb-3 border-b border-slate-100 w-full">
-                  <button
+                  <motion.button
                     type="button"
+                    whileTap={{ scale: 0.94 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                     onClick={() => setIsOutOfStockModalOpen(true)}
-                    className="w-full py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[10px] sm:text-xs font-black rounded-lg border border-amber-200/50 transition-all flex items-center justify-center gap-1 cursor-pointer shadow-3xs active:scale-95"
+                    className="w-full py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[10px] sm:text-xs font-black rounded-lg border border-amber-200/50 transition-all duration-[270ms] flex items-center justify-center gap-1 cursor-pointer shadow-3xs"
                     id="oos-trigger-btn"
                   >
                     <PlusCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
                     <span className="truncate">{isBangla ? 'মাল নেই' : 'No Goods'}</span>
-                  </button>
+                  </motion.button>
                   
-                  <button
+                  <motion.button
                     type="button"
+                    whileTap={{ scale: 0.94 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                     onClick={() => setIsProductRateModalOpen(true)}
-                    className="w-full py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-[10px] sm:text-xs font-black rounded-lg border border-sky-200/50 transition-all flex items-center justify-center gap-1 cursor-pointer shadow-3xs active:scale-95"
+                    className="w-full py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-[10px] sm:text-xs font-black rounded-lg border border-sky-200/50 transition-all duration-[270ms] flex items-center justify-center gap-1 cursor-pointer shadow-3xs"
                     id="rates-trigger-btn"
                   >
                     <PlusCircle className="h-3.5 w-3.5 text-sky-600 shrink-0" />
                     <span className="truncate">{isBangla ? 'মালের রেট' : 'Rates'}</span>
-                  </button>
+                  </motion.button>
 
-                  <button
+                  <motion.button
                     type="button"
+                    whileTap={{ scale: 0.94 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                     onClick={() => setIsExpenseModalOpen(true)}
-                    className="w-full py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] sm:text-xs font-black rounded-lg border border-rose-200/40 transition-all flex items-center justify-center gap-1 cursor-pointer shadow-3xs active:scale-95"
+                    className="w-full py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] sm:text-xs font-black rounded-lg border border-rose-200/40 transition-all duration-[270ms] flex items-center justify-center gap-1 cursor-pointer shadow-3xs"
                     id="small-expense-btn"
                   >
                     <PlusCircle className="h-3.5 w-3.5 text-rose-500 shrink-0" />
                     <span className="truncate">{isBangla ? 'খরচ যোগ' : 'Add Expense'}</span>
-                  </button>
+                  </motion.button>
                 </div>
 
                 <form onSubmit={handleAddTransaction} className="space-y-3.5">
@@ -3012,7 +3168,7 @@ export default function App() {
                   {/* Submit save button */}
                   <button
                     type="submit"
-                    className="w-full py-3 bg-[#009688] hover:bg-[#00897B] text-white font-black text-sm rounded-xl shadow-sm shadow-teal-700/5 hover:shadow transition-all active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer h-12"
+                    className="w-full py-3 bg-[#009688] hover:bg-[#00897B] text-white font-black text-sm rounded-xl shadow-xl shadow-teal-700/5 hover:shadow transition-all active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer h-12"
                     id="submit-transaction-btn"
                   >
                     <Check className="h-4 w-4 stroke-[3.5]" />
@@ -3022,15 +3178,15 @@ export default function App() {
                 </form>
               </div>
 
-                {/* 2. Today's Sales List */}
-                <TransactionList
-                  transactions={todayTransactions}
-                  isBangla={isBangla}
-                  onDelete={handleDeleteTransaction}
-                  onUpdate={handleUpdateTransaction}
-                />
+              {/* 2. Today's Sales List */}
+              <TransactionList
+                transactions={todayTransactions}
+                isBangla={isBangla}
+                onDelete={handleDeleteTransaction}
+                onUpdate={handleUpdateTransaction}
+              />
 
-              </div>
+            </div>
           </motion.div>
         )}
 
@@ -3044,37 +3200,22 @@ export default function App() {
             transition={{ duration: 0.1, ease: 'easeOut' }}
             className="max-w-4xl mx-auto w-full px-4 py-4 space-y-5"
           >
-            {/* Page Header Info */}
-            <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">
-                  <Info className="h-5 w-5 text-teal-600" />
-                  <span>{isBangla ? 'প্রয়োজনীয় খতিয়ান ও সার্ভিস' : 'Ledger Services & Lists'}</span>
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  {isBangla 
-                    ? 'দোকানের ঘাটতি পণ্য (মাল নেই), পণ্যের রেট তালিকা, গ্রাহকের বকেয়া খাতা এবং খরচের বিবরণী।' 
-                    : 'List of out of stock goods, product rates, customer outstanding dues, and store expenses.'}
-                </p>
-              </div>
-            </div>
-
             {/* Custom Quad Sub-Tabs Selector Bar */}
-            <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 grid grid-cols-2 md:grid-cols-4 gap-1.5 shadow-2xs max-w-4xl mx-auto w-full">
+            <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 grid grid-cols-2 md:grid-cols-4 gap-1.5 shadow-2xs max-w-4xl mx-auto w-full relative">
               <button
                 type="button"
                 onClick={() => {
                   setActiveInfoTab('oos');
                   setShowAllOos(false);
                 }}
-                className={`py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`relative py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 select-none focus:outline-none ${
                   activeInfoTab === 'oos'
-                    ? 'bg-white text-amber-850 shadow-sm border border-slate-200/40'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white shadow-3xs text-amber-800'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
                 }`}
               >
-                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                <span className="truncate">{isBangla ? 'শর্ট/নেই মাল' : 'Short/No Goods'}</span>
+                <span>📦</span>
+                <span>{isBangla ? 'মাল নেই' : 'Short/OOS'}</span>
               </button>
               <button
                 type="button"
@@ -3082,582 +3223,610 @@ export default function App() {
                   setActiveInfoTab('rates');
                   setShowAllRates(false);
                 }}
-                className={`py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`relative py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 select-none focus:outline-none ${
                   activeInfoTab === 'rates'
-                    ? 'bg-white text-sky-850 shadow-sm border border-slate-200/40'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white shadow-3xs text-sky-800'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
                 }`}
               >
-                <Coins className="h-4 w-4 text-sky-600 shrink-0" />
-                <span className="truncate">{isBangla ? 'পণ্যের রেট' : 'Product Rates'}</span>
+                <span>💰</span>
+                <span>{isBangla ? 'পণ্যের রেট' : 'Rates'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setActiveInfoTab('dues');
                 }}
-                className={`py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`relative py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 select-none focus:outline-none ${
                   activeInfoTab === 'dues'
-                    ? 'bg-white text-rose-850 shadow-sm border border-slate-200/40'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white shadow-3xs text-amber-800'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
                 }`}
               >
-                <User className="h-4 w-4 text-rose-600 shrink-0" />
-                <span className="truncate">{isBangla ? 'বাকির লিস্ট' : 'Due List'}</span>
+                <span>👤</span>
+                <span>{isBangla ? 'বকেয়া খাতা' : 'Dues'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setActiveInfoTab('expenses');
                 }}
-                className={`py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`relative py-3 px-2 text-xs font-black rounded-xl transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 select-none focus:outline-none ${
                   activeInfoTab === 'expenses'
-                    ? 'bg-white text-emerald-850 shadow-sm border border-slate-200/40'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white shadow-3xs text-emerald-800'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
                 }`}
               >
-                <Wallet className="h-4 w-4 text-emerald-600 shrink-0" />
-                <span className="truncate">{isBangla ? 'খরচের লিস্ট' : 'Expense List'}</span>
+                <span>💵</span>
+                <span>{isBangla ? 'খরচের বিবরণী' : 'Expenses'}</span>
               </button>
             </div>
 
             {/* Content Card Panel */}
-            <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs flex flex-col min-h-[460px]">
+            <div className="bg-white rounded-2xl border-2 border-slate-100 p-5 shadow-xs flex flex-col min-h-[460px] overflow-hidden">
               
-              {/* Header inside Card (Title + Add Button) */}
-              {activeInfoTab === 'oos' && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="p-1.5 bg-amber-50 rounded-lg text-amber-700 shrink-0">
-                      <AlertCircle className="h-4 w-4" />
-                    </span>
-                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
-                      {isBangla ? 'শর্ট/নেই মাল এর তালিকা' : 'Short/Out of Stock'}
-                    </h3>
-                  </div>
-                  <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-extrabold bg-amber-100 text-amber-850 px-2.5 py-1 rounded-full font-sans">
-                        {isBangla ? toBanglaNumber(outOfStockItems.length) : outOfStockItems.length}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-bold sm:hidden">
-                        {isBangla ? 'টি পণ্য' : 'items'}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setIsOutOfStockModalOpen(true)}
-                      className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-amber-700 to-amber-800 hover:from-amber-800 hover:to-amber-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
-                    >
-                      <Plus className="h-3.5 w-3.5 stroke-[3]" />
-                      <span>{isBangla ? 'যোগ করুন' : 'Add New'}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeInfoTab === 'rates' && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="p-1.5 bg-sky-50 rounded-lg text-sky-700 shrink-0">
-                      <Coins className="h-4 w-4" />
-                    </span>
-                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
-                      {isBangla ? 'পণ্যের রেট ও কেনা দাম' : 'Product Wholesale Rates'}
-                    </h3>
-                  </div>
-                  <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-extrabold bg-sky-100 text-sky-850 px-2.5 py-1 rounded-full font-sans">
-                        {isBangla ? toBanglaNumber(productRates.length) : productRates.length}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-bold sm:hidden">
-                        {isBangla ? 'টি পণ্য' : 'items'}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setIsProductRateModalOpen(true)}
-                      className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-sky-700 to-sky-800 hover:from-sky-800 hover:to-sky-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
-                    >
-                      <Plus className="h-3.5 w-3.5 stroke-[3]" />
-                      <span>{isBangla ? 'যোগ করুন' : 'Add New'}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeInfoTab === 'dues' && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="p-1.5 bg-rose-50 rounded-lg text-rose-700 shrink-0">
-                      <User className="h-4 w-4" />
-                    </span>
-                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
-                      {isBangla ? 'গ্রাহকদের বাকির তালিকা' : 'Customer Due List'}
-                    </h3>
-                  </div>
-                  
-                  <div className="flex items-center justify-between sm:justify-end gap-2.5 w-full sm:w-auto">
-                    <div className="flex items-center gap-1.5 bg-rose-50/60 px-2.5 py-1 rounded-full border border-rose-100/50">
-                      <span className="text-xs font-black text-rose-800 font-sans">
-                        {isBangla ? toBanglaNumber(customerDues.length) : customerDues.length}
-                      </span>
-                      <span className="text-[10px] text-rose-700/80 font-bold">
-                        {isBangla ? 'জন ক্রেতা' : 'customers'}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setIsAddDueModalOpen(true)}
-                      className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-rose-700 to-rose-800 hover:from-rose-800 hover:to-rose-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
-                    >
-                      <Plus className="h-3.5 w-3.5 stroke-[3]" />
-                      <span>{isBangla ? 'যোগ করুন' : 'Add New'}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeInfoTab === 'expenses' && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="p-1.5 bg-emerald-50 rounded-lg text-emerald-700 shrink-0">
-                      <Wallet className="h-4 w-4" />
-                    </span>
-                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
-                      {isBangla ? 'খরচের তালিকা ও খতিয়ান' : 'Expense Ledger List'}
-                    </h3>
-                  </div>
-                  <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-extrabold bg-emerald-100 text-emerald-850 px-2.5 py-1 rounded-full font-sans">
-                        {isBangla ? toBanglaNumber(todayExpenses.length) : todayExpenses.length}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-bold">
-                        {isBangla ? 'টি খতিয়ান' : 'entries'}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setIsExpenseModalOpen(true)}
-                      className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-emerald-700 to-emerald-800 hover:from-emerald-800 hover:to-emerald-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
-                    >
-                      <Plus className="h-3.5 w-3.5 stroke-[3]" />
-                      <span>{isBangla ? 'খরচ যোগ' : 'Add Expense'}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Tab Specific Content */}
-              {activeInfoTab === 'oos' && (
-                <div className="flex-1 flex flex-col justify-between">
-                  {/* Local Search for Out Of Stock */}
-                  <div className="mb-4">
-                    <input
-                      type="text"
-                      placeholder={isBangla ? 'মালের নাম দিয়ে খুঁজুন...' : 'Search goods...'}
-                      value={oosSearch}
-                      onChange={(e) => {
-                        setOosSearch(e.target.value);
-                        setOosPage(1);
-                        setShowAllOos(false);
-                      }}
-                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
-                    />
-                  </div>
-
-                  {/* List Container without lagging layout animation */}
-                  <div className="flex-1 space-y-2 flex flex-col justify-between">
-                    {(() => {
-                      const filteredOos = outOfStockItems
-                        .filter(item => item.name.toLowerCase().includes(oosSearch.toLowerCase()))
-                        .sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
-                      
-                      const itemsToShow = showAllOos ? filteredOos : filteredOos.slice(0, 6);
-
-                      if (filteredOos.length === 0) {
-                        return (
-                          <div className="flex flex-col items-center justify-center text-center py-16 flex-1 text-slate-400">
-                            <AlertCircle className="h-10 w-10 text-slate-300 mb-2" />
-                            <p className="text-xs font-semibold">
-                              {isBangla ? 'কোনো তথ্য খুঁজে পাওয়া যায়নি!' : 'No out of stock items found!'}
-                            </p>
-                            <button
-                              onClick={() => setIsOutOfStockModalOpen(true)}
-                              className="mt-3 text-xs text-amber-600 hover:text-amber-700 font-bold underline cursor-pointer"
-                            >
-                              {isBangla ? 'নতুন যোগ করুন' : 'Add new item'}
-                            </button>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div className="flex-1 flex flex-col justify-between">
-                          <div className="space-y-2.5">
-                            {itemsToShow.map((item) => {
-                              const isEditing = editingOosId === item.id;
-                              return (
-                                <div 
-                                  key={item.id} 
-                                  className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-150 ${
-                                    isEditing 
-                                      ? 'bg-amber-50 border-amber-300 shadow-3xs' 
-                                      : 'bg-amber-50/40 border-amber-100 hover:bg-amber-50/80 hover:border-amber-200'
-                                  }`}
-                                >
-                                  {isEditing ? (
-                                    <div className="flex-1 flex flex-col gap-2">
-                                      <input
-                                        type="text"
-                                        value={editOosName}
-                                        onChange={(e) => setEditOosName(e.target.value)}
-                                        className="w-full text-xs p-1.5 rounded-lg border border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white font-bold text-slate-800"
-                                        autoFocus
-                                      />
-                                      <div className="flex items-center gap-1.5 justify-end">
-                                        <button
-                                          type="button"
-                                          onClick={() => setEditingOosId(null)}
-                                          className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
-                                        >
-                                          <X className="h-3 w-3" />
-                                          <span>{isBangla ? 'বাতিল' : 'Cancel'}</span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (editOosName.trim()) {
-                                              handleUpdateOutOfStock(item.id, editOosName);
-                                              setEditingOosId(null);
-                                            }
-                                          }}
-                                          className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
-                                        >
-                                          <Check className="h-3 w-3" />
-                                          <span>{isBangla ? 'সেভ' : 'Save'}</span>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <>
-                                      <div className="min-w-0 flex-1 pr-2">
-                                        <h4 className="text-xs font-extrabold text-slate-800 break-words whitespace-normal leading-snug">{item.name}</h4>
-                                        <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
-                                          {formatDate(item.dateAdded, isBangla)}
-                                        </span>
-                                      </div>
-                                      
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <button
-                                          onClick={() => {
-                                            setEditingOosId(item.id);
-                                            setEditOosName(item.name);
-                                            setDeletingOosId(null);
-                                          }}
-                                          className="p-1.5 hover:bg-amber-100 text-slate-400 hover:text-amber-600 rounded-lg transition-colors cursor-pointer"
-                                          title={isBangla ? 'নাম পরিবর্তন' : 'Edit'}
-                                        >
-                                          <Edit2 className="h-3.5 w-3.5" />
-                                        </button>
-                                        <button
-                                          onClick={() => {
-                                            setEditingOosId(null);
-                                            setConfirmModal({
-                                              isOpen: true,
-                                              title: isBangla ? 'ঘাটতি পণ্য মুছুন' : 'Delete Shortage Item',
-                                              message: isBangla 
-                                                ? `আপনি কি নিশ্চিতভাবে "${item.name}" তালিকা থেকে মুছে ফেলতে চান?` 
-                                                : `Are you sure you want to delete "${item.name}" from the shortage list?`,
-                                              onConfirm: () => handleDeleteOutOfStock(item.id)
-                                            });
-                                          }}
-                                          className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer shrink-0"
-                                          title={isBangla ? 'মুছে ফেলুন' : 'Delete'}
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        </button>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* See More Button */}
-                          {filteredOos.length > 6 && (
-                            <div className="flex justify-center pt-4 border-t border-slate-100 mt-4">
-                              <button
-                                onClick={() => setShowAllOos(!showAllOos)}
-                                className="px-4 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100/60 rounded-xl border border-amber-200/50 flex items-center gap-1.5 cursor-pointer transition-all shadow-3xs active:scale-95"
-                              >
-                                <span>
-                                  {showAllOos 
-                                    ? (isBangla ? 'কম দেখুন' : 'Show Less') 
-                                    : (isBangla ? 'আরও দেখুন' : 'See More')}
-                                </span>
-                                {showAllOos ? (
-                                  <ChevronLeft className="h-3.5 w-3.5 rotate-90" />
-                                ) : (
-                                  <ChevronRight className="h-3.5 w-3.5 rotate-90" />
-                                )}
-                              </button>
-                            </div>
-                          )}
+              <AnimatePresence mode="wait">
+                {activeInfoTab === 'oos' && (
+                  <motion.div
+                    key="oos-tab-panel"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                    className="flex-1 flex flex-col justify-between"
+                  >
+                    {/* Header inside Card (Title + Add Button) */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="p-1.5 bg-amber-50 rounded-lg text-amber-700 shrink-0">
+                          <AlertCircle className="h-4 w-4" />
+                        </span>
+                        <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                          {isBangla ? 'শর্ট/নেই মাল এর তালিকা' : 'Short/Out of Stock'}
+                        </h3>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-extrabold bg-amber-100 text-amber-850 px-2.5 py-1 rounded-full font-sans">
+                            {isBangla ? toBanglaNumber(outOfStockItems.length) : outOfStockItems.length}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold sm:hidden">
+                            {isBangla ? 'টি পণ্য' : 'items'}
+                          </span>
                         </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
+                        <button
+                          onClick={() => setIsOutOfStockModalOpen(true)}
+                          className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-amber-700 to-amber-800 hover:from-amber-800 hover:to-amber-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
+                        >
+                          <Plus className="h-3.5 w-3.5 stroke-[3]" />
+                          <span>{isBangla ? 'যোগ করুন' : 'Add New'}</span>
+                        </button>
+                      </div>
+                    </div>
 
-              {activeInfoTab === 'rates' && (
-                <div className="flex-1 flex flex-col justify-between">
-                  {/* Local Search for Product Rates */}
-                  <div className="mb-4">
-                    <input
-                      type="text"
-                      placeholder={isBangla ? 'মালের নাম দিয়ে খুঁজুন...' : 'Search product...'}
-                      value={rateSearch}
-                      onChange={(e) => {
-                        setRateSearch(e.target.value);
-                        setRatePage(1);
-                        setShowAllRates(false);
-                      }}
-                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
-                    />
-                  </div>
+                    {/* Tab Specific Content */}
+                    <div className="flex-1 flex flex-col justify-between">
+                      {/* Local Search for Out Of Stock */}
+                      <div className="mb-4">
+                        <input
+                          type="text"
+                          placeholder={isBangla ? 'মালের নাম দিয়ে খুঁজুন...' : 'Search goods...'}
+                          value={oosSearch}
+                          onChange={(e) => {
+                            setOosSearch(e.target.value);
+                            setOosPage(1);
+                            setShowAllOos(false);
+                          }}
+                          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
+                        />
+                      </div>
 
-                  {/* List Container without lagging layout animation */}
-                  <div className="flex-1 space-y-2 flex flex-col justify-between">
-                    {(() => {
-                      const filteredRates = productRates
-                        .filter(item => 
-                          item.name.toLowerCase().includes(rateSearch.toLowerCase()) ||
-                          (item.keywords && item.keywords.toLowerCase().includes(rateSearch.toLowerCase()))
-                        )
-                        .sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
-                      
-                      const itemsToShow = showAllRates ? filteredRates : filteredRates.slice(0, 6);
+                      {/* List Container without lagging layout animation */}
+                      <div className="flex-1 space-y-2 flex flex-col justify-between">
+                        {(() => {
+                          const filteredOos = outOfStockItems
+                            .filter(item => item.name.toLowerCase().includes(oosSearch.toLowerCase()))
+                            .sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
+                          
+                          const itemsToShow = showAllOos ? filteredOos : filteredOos.slice(0, 6);
 
-                      if (filteredRates.length === 0) {
-                        return (
-                          <div className="flex flex-col items-center justify-center text-center py-16 flex-1 text-slate-400">
-                            <Coins className="h-10 w-10 text-slate-300 mb-2" />
-                            <p className="text-xs font-semibold">
-                              {isBangla ? 'কোনো তথ্য খুঁজে পাওয়া যায়নি!' : 'No product rates found!'}
-                            </p>
-                            <button
-                              onClick={() => setIsProductRateModalOpen(true)}
-                              className="mt-3 text-xs text-sky-600 hover:text-sky-700 font-bold underline cursor-pointer"
-                            >
-                              {isBangla ? 'নতুন যোগ করুন' : 'Add new rate'}
-                            </button>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div className="flex-1 flex flex-col justify-between">
-                          <div className="space-y-2.5">
-                            {itemsToShow.map((item) => {
-                              const isEditing = editingRateId === item.id;
-                              return (
-                                <div 
-                                  key={item.id} 
-                                  className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-150 ${
-                                    isEditing 
-                                      ? 'bg-sky-50 border-sky-300 shadow-3xs' 
-                                      : 'bg-sky-50/40 border-sky-100 hover:bg-sky-50/80 hover:border-sky-200'
-                                  }`}
+                          if (filteredOos.length === 0) {
+                            return (
+                              <div className="flex flex-col items-center justify-center text-center py-16 flex-1 text-slate-400">
+                                <AlertCircle className="h-10 w-10 text-slate-300 mb-2" />
+                                <p className="text-xs font-semibold">
+                                  {isBangla ? 'কোনো তথ্য খুঁজে পাওয়া যায়নি!' : 'No out of stock items found!'}
+                                </p>
+                                <button
+                                  onClick={() => setIsOutOfStockModalOpen(true)}
+                                  className="mt-3 text-xs text-amber-600 hover:text-amber-700 font-bold underline cursor-pointer"
                                 >
-                                  {isEditing ? (
-                                    <div className="flex-1 flex flex-col gap-2">
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <div>
-                                          <label className="block text-[9px] font-black text-slate-500 mb-0.5">
-                                            {isBangla ? 'মালের নাম' : 'Product Name'}
-                                          </label>
+                                  {isBangla ? 'নতুন যোগ করুন' : 'Add new item'}
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="flex-1 flex flex-col justify-between">
+                              <div className="space-y-2.5">
+                                {itemsToShow.map((item) => {
+                                  const isEditing = editingOosId === item.id;
+                                  return (
+                                    <div 
+                                      key={item.id} 
+                                      className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-150 ${
+                                        isEditing 
+                                          ? 'bg-amber-50 border-amber-300 shadow-3xs' 
+                                          : 'bg-amber-50/40 border-amber-100 hover:bg-amber-50/80 hover:border-amber-200'
+                                      }`}
+                                    >
+                                      {isEditing ? (
+                                        <div className="flex-1 flex flex-col gap-2">
                                           <input
                                             type="text"
-                                            value={editRateName}
-                                            onChange={(e) => setEditRateName(e.target.value)}
-                                            className="w-full text-xs p-1.5 rounded-lg border border-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-bold text-slate-800"
+                                            value={editOosName}
+                                            onChange={(e) => setEditOosName(e.target.value)}
+                                            className="w-full text-xs p-1.5 rounded-lg border border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white font-bold text-slate-800"
                                             autoFocus
                                           />
+                                          <div className="flex items-center gap-1.5 justify-end">
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingOosId(null)}
+                                              className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
+                                            >
+                                              <X className="h-3 w-3" />
+                                              <span>{isBangla ? 'বাতিল' : 'Cancel'}</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (editOosName.trim()) {
+                                                  handleUpdateOutOfStock(item.id, editOosName);
+                                                  setEditingOosId(null);
+                                                }
+                                              }}
+                                              className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
+                                            >
+                                              <Check className="h-3 w-3" />
+                                              <span>{isBangla ? 'সেভ' : 'Save'}</span>
+                                            </button>
+                                          </div>
                                         </div>
-                                        <div>
-                                          <label className="block text-[9px] font-black text-slate-500 mb-0.5">
-                                            {isBangla ? 'কেনা দাম (৳)' : 'Price (৳)'}
-                                          </label>
-                                          <input
-                                            type="number"
-                                            value={editRatePrice}
-                                            onChange={(e) => {
-                                              let val = e.target.value;
-                                              if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
-                                                val = val.replace(/^0+/, '');
-                                              }
-                                              setEditRatePrice(val);
-                                            }}
-                                            className="w-full text-xs p-1.5 rounded-lg border border-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-bold text-slate-800"
-                                          />
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <label className="block text-[9px] font-black text-slate-500 mb-0.5">
-                                          {isBangla ? 'কীওয়ার্ড / ট্যাগ (কমা দিয়ে আলাদা করুন)' : 'Keywords / Tags (comma separated)'}
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={editRateKeywords}
-                                          onChange={(e) => setEditRateKeywords(e.target.value)}
-                                          placeholder={isBangla ? 'যেমন: আলু, লাল আলু, potato' : 'e.g. potato, red potato'}
-                                          className="w-full text-xs p-1.5 rounded-lg border border-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-medium text-slate-800"
-                                        />
-                                      </div>
-                                      <div className="flex items-center gap-1.5 justify-end">
-                                        <button
-                                          type="button"
-                                          onClick={() => setEditingRateId(null)}
-                                          className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
-                                        >
-                                          <X className="h-3 w-3" />
-                                          <span>{isBangla ? 'বাতিল' : 'Cancel'}</span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const priceNum = parseFloat(editRatePrice);
-                                            if (editRateName.trim() && !isNaN(priceNum) && priceNum >= 0) {
-                                              handleUpdateProductRate(item.id, editRateName, priceNum, editRateKeywords);
-                                              setEditingRateId(null);
-                                            }
-                                          }}
-                                          className="px-2 py-1 bg-sky-600 hover:bg-sky-700 text-white font-bold text-[10px] rounded-md transition-colors cursor-pointer flex items-center gap-0.5"
-                                        >
-                                          <Check className="h-3 w-3" />
-                                          <span>{isBangla ? 'সেভ' : 'Save'}</span>
-                                        </button>
-                                      </div>
+                                      ) : (
+                                        <>
+                                          <div className="min-w-0 flex-1 pr-2">
+                                            <h4 className="text-xs font-extrabold text-slate-800 break-words whitespace-normal leading-snug">{item.name}</h4>
+                                            <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
+                                              {formatDate(item.dateAdded, isBangla)}
+                                            </span>
+                                          </div>
+                                          
+                                          <div className="flex items-center gap-1.5 shrink-0">
+                                            <button
+                                              onClick={() => {
+                                                setEditingOosId(item.id);
+                                                setEditOosName(item.name);
+                                                setDeletingOosId(null);
+                                              }}
+                                              className="p-1.5 hover:bg-amber-100 text-slate-400 hover:text-amber-600 rounded-lg transition-colors cursor-pointer"
+                                              title={isBangla ? 'নাম পরিবর্তন' : 'Edit'}
+                                            >
+                                              <Edit2 className="h-3.5 w-3.5" />
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setEditingOosId(null);
+                                                setConfirmModal({
+                                                  isOpen: true,
+                                                  title: isBangla ? 'ঘাটতি পণ্য মুছুন' : 'Delete Shortage Item',
+                                                  message: isBangla 
+                                                    ? `আপনি কি নিশ্চিতভাবে "${item.name}" তালিকা থেকে মুছে ফেলতে চান?` 
+                                                    : `Are you sure you want to delete "${item.name}" from the shortage list?`,
+                                                  onConfirm: () => handleDeleteOutOfStock(item.id)
+                                                });
+                                              }}
+                                              className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer shrink-0"
+                                              title={isBangla ? 'মুছে ফেলুন' : 'Delete'}
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                            </button>
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
-                                  ) : (
-                                    <>
-                                      <div className="min-w-0 flex-1 pr-2">
-                                        <h4 
-                                          onClick={() => {
-                                            setActiveProfitCalcProduct(item);
-                                            setProfitInput('');
-                                          }}
-                                          className="text-xs font-extrabold text-slate-800 break-words whitespace-normal leading-snug cursor-pointer hover:text-sky-600 transition-colors"
-                                          title={isBangla ? 'লাভ হিসাব করতে ক্লিক করুন' : 'Click to calculate profit'}
-                                        >
-                                          {item.name}
-                                        </h4>
-                                        <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
-                                          {formatDate(item.dateAdded, isBangla)}
-                                        </span>
-                                      </div>
-                                      
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <span className="text-xs font-black text-sky-700 font-sans bg-sky-100/60 px-2 py-1 rounded-lg">
-                                          {formatCurrency(item.buyingPrice, isBangla)}
-                                        </span>
-                                        
-                                        <motion.button
-                                          whileHover={{ scale: 1.15, rotate: 6, backgroundColor: 'rgba(14, 165, 233, 0.12)' }}
-                                          whileTap={{ scale: 0.9 }}
-                                          transition={{ type: "spring", stiffness: 400, damping: 15 }}
-                                          onClick={() => {
-                                            setEditingRateId(item.id);
-                                            setEditRateName(item.name);
-                                            setEditRatePrice(String(item.buyingPrice));
-                                            setEditRateKeywords(item.keywords || '');
-                                          }}
-                                          className="p-1.5 text-slate-400 hover:text-sky-600 rounded-lg cursor-pointer flex items-center justify-center transition-colors"
-                                          title={isBangla ? 'পরিবর্তন করুন' : 'Edit'}
-                                        >
-                                          <Edit2 className="h-3.5 w-3.5" />
-                                        </motion.button>
-                                        
-                                        <button
-                                          onClick={() => {
-                                            setEditingRateId(null);
-                                            setConfirmModal({
-                                              isOpen: true,
-                                              title: isBangla ? 'মালের রেট মুছুন' : 'Delete Product Rate',
-                                              message: isBangla 
-                                                ? `আপনি কি নিশ্চিতভাবে "${item.name}"-এর রেট মুছে ফেলতে চান?` 
-                                                : `Are you sure you want to delete the rate for "${item.name}"?`,
-                                              onConfirm: () => handleDeleteProductRate(item.id)
-                                            });
-                                          }}
-                                          className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer shrink-0"
-                                          title={isBangla ? 'মুছে ফেলুন' : 'Delete'}
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        </button>
-                                      </div>
-                                    </>
-                                  )}
+                                  );
+                                })}
+                              </div>
+
+                              {/* See More Button */}
+                              {filteredOos.length > 6 && (
+                                <div className="flex justify-center pt-4 border-t border-slate-100 mt-4">
+                                  <button
+                                    onClick={() => setShowAllOos(!showAllOos)}
+                                    className="px-4 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100/60 rounded-xl border border-amber-200/50 flex items-center gap-1.5 cursor-pointer transition-all shadow-3xs active:scale-95"
+                                  >
+                                    <span>
+                                      {showAllOos 
+                                        ? (isBangla ? 'কম দেখুন' : 'Show Less') 
+                                        : (isBangla ? 'আরও দেখুন' : 'See More')}
+                                    </span>
+                                    {showAllOos ? (
+                                      <ChevronLeft className="h-3.5 w-3.5 rotate-90" />
+                                    ) : (
+                                      <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+                                    )}
+                                  </button>
                                 </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* See More Button */}
-                          {filteredRates.length > 6 && (
-                            <div className="flex justify-center pt-4 border-t border-slate-100 mt-4">
-                              <button
-                                onClick={() => setShowAllRates(!showAllRates)}
-                                className="px-4 py-2 text-xs font-bold text-sky-800 hover:bg-sky-100/60 rounded-xl border border-sky-200/50 flex items-center gap-1.5 cursor-pointer transition-all shadow-3xs active:scale-95"
-                              >
-                                <span>
-                                  {showAllRates 
-                                    ? (isBangla ? 'কম দেখুন' : 'Show Less') 
-                                    : (isBangla ? 'আরও দেখুন' : 'See More')}
-                                </span>
-                                {showAllRates ? (
-                                  <ChevronLeft className="h-3.5 w-3.5 rotate-90" />
-                                ) : (
-                                  <ChevronRight className="h-3.5 w-3.5 rotate-90" />
-                                )}
-                              </button>
+                              )}
                             </div>
-                          )}
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {activeInfoTab === 'rates' && (
+                  <motion.div
+                    key="rates-tab-panel"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                    className="flex-1 flex flex-col justify-between"
+                  >
+                    {/* Header inside Card */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="p-1.5 bg-sky-50 rounded-lg text-sky-700 shrink-0">
+                          <Coins className="h-4 w-4" />
+                        </span>
+                        <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                          {isBangla ? 'পণ্যের রেট ও কেনা দাম' : 'Product Wholesale Rates'}
+                        </h3>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-extrabold bg-sky-100 text-sky-850 px-2.5 py-1 rounded-full font-sans">
+                            {isBangla ? toBanglaNumber(productRates.length) : productRates.length}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold sm:hidden">
+                            {isBangla ? 'টি পণ্য' : 'items'}
+                          </span>
                         </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
+                        <button
+                          onClick={() => setIsProductRateModalOpen(true)}
+                          className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-sky-700 to-sky-800 hover:from-sky-800 hover:to-sky-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
+                        >
+                          <Plus className="h-3.5 w-3.5 stroke-[3]" />
+                          <span>{isBangla ? 'যোগ করুন' : 'Add New'}</span>
+                        </button>
+                      </div>
+                    </div>
 
-              {activeInfoTab === 'dues' && (
-                <div className="flex-1 flex flex-col justify-between">
-                  <DueList
-                    dueList={customerDues}
-                    isBangla={isBangla}
-                    onDeposit={handleDueDeposit}
-                    onDelete={handleDeleteCustomerDues}
-                    onRename={handleRenameCustomerDues}
-                    onViewDetail={setSelectedCustomerForDetail}
-                    transactions={transactions}
-                    onDeleteTransaction={handleDeleteTransaction}
-                  />
-                </div>
-              )}
+                    {/* Tab Specific Content */}
+                    <div className="flex-1 flex flex-col justify-between">
+                      {/* Local Search for Product Rates */}
+                      <div className="mb-4">
+                        <input
+                          type="text"
+                          placeholder={isBangla ? 'মালের নাম দিয়ে খুঁজুন...' : 'Search product...'}
+                          value={rateSearch}
+                          onChange={(e) => {
+                            setRateSearch(e.target.value);
+                            setRatePage(1);
+                            setShowAllRates(false);
+                          }}
+                          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
+                        />
+                      </div>
 
-              {activeInfoTab === 'expenses' && (
-                <div className="flex-1 flex flex-col justify-between">
-                  <ExpenseList
-                    expenses={todayExpenses}
-                    isBangla={isBangla}
-                    onDelete={handleDeleteExpense}
-                    onUpdate={handleUpdateExpense}
-                    todayExpenseTotal={todayExpenseTotal}
-                  />
-                </div>
-              )}
+                      {/* List Container without lagging layout animation */}
+                      <div className="flex-1 space-y-2 flex flex-col justify-between">
+                        {(() => {
+                          const filteredRates = productRates
+                            .filter(item => 
+                              item.name.toLowerCase().includes(rateSearch.toLowerCase()) ||
+                              (item.keywords && item.keywords.toLowerCase().includes(rateSearch.toLowerCase()))
+                            )
+                            .sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
+                          
+                          const itemsToShow = showAllRates ? filteredRates : filteredRates.slice(0, 8);
 
+                          if (filteredRates.length === 0) {
+                            return (
+                              <div className="flex flex-col items-center justify-center text-center py-16 flex-1 text-slate-400">
+                                <Coins className="h-10 w-10 text-slate-300 mb-2" />
+                                <p className="text-xs font-semibold">
+                                  {isBangla ? 'কোনো তথ্য খুঁজে পাওয়া যায়নি!' : 'No product rates found!'}
+                                </p>
+                                <button
+                                  onClick={() => setIsProductRateModalOpen(true)}
+                                  className="mt-3 text-xs text-sky-600 hover:text-sky-700 font-bold underline cursor-pointer"
+                                >
+                                  {isBangla ? 'নতুন যোগ করুন' : 'Add new rate'}
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="flex-1 flex flex-col justify-between">
+                              <div className="max-h-[380px] overflow-y-auto no-scrollbar space-y-2 p-1">
+                                {itemsToShow.map((item) => {
+                                  const isEditing = editingRateId === item.id;
+                                  return (
+                                    <div 
+                                      key={item.id} 
+                                      className={`p-2 rounded-xl border transition-all duration-150 ${
+                                        isEditing 
+                                          ? 'bg-sky-50 border-sky-300 shadow-3xs' 
+                                          : 'bg-white border-slate-200/60 shadow-3xs hover:bg-sky-50/20 hover:border-sky-100'
+                                      }`}
+                                    >
+                                      {isEditing ? (
+                                        <div className="flex flex-col gap-2">
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            <div>
+                                              <label className="block text-[9px] font-black text-slate-500 mb-0.5">
+                                                {isBangla ? 'মালের নাম' : 'Product Name'}
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={editRateName}
+                                                onChange={(e) => setEditRateName(e.target.value)}
+                                                className="w-full text-[10px] p-1.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-medium text-slate-800"
+                                                autoFocus
+                                              />
+                                            </div>
+                                            <div>
+                                              <label className="block text-[9px] font-black text-slate-500 mb-0.5">
+                                                {isBangla ? 'কেনা দাম (৳)' : 'Price (৳)'}
+                                              </label>
+                                              <input
+                                                type="number"
+                                                value={editRatePrice}
+                                                onChange={(e) => {
+                                                  let val = e.target.value;
+                                                  if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                                                    val = val.replace(/^0+/, '');
+                                                  }
+                                                  setEditRatePrice(val);
+                                                }}
+                                                className="w-full text-[10px] p-1.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-bold text-slate-800"
+                                              />
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <label className="block text-[9px] font-black text-slate-500 mb-0.5">
+                                              {isBangla ? 'কীওয়ার্ড / ট্যাগ (কমা দিয়ে আলাদা করুন)' : 'Keywords / Tags (comma separated)'}
+                                            </label>
+                                            <input
+                                              type="text"
+                                              value={editRateKeywords}
+                                              onChange={(e) => setEditRateKeywords(e.target.value)}
+                                              placeholder={isBangla ? 'যেমন: আলু, লাল আলু, potato' : 'e.g. potato, red potato'}
+                                              className="w-full text-[10px] p-1.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 bg-white font-medium text-slate-800"
+                                            />
+                                          </div>
+                                          <div className="flex items-center gap-1.5 justify-end pt-1.5 border-t border-slate-100">
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingRateId(null)}
+                                              className="px-2 py-1 text-[9px] text-slate-500 hover:bg-slate-200 rounded flex items-center gap-1 border border-slate-200 bg-white font-bold cursor-pointer"
+                                            >
+                                              <X className="h-2.5 w-2.5" />
+                                              <span>{isBangla ? 'বাতিল' : 'Cancel'}</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const priceNum = parseFloat(editRatePrice);
+                                                if (editRateName.trim() && !isNaN(priceNum) && priceNum >= 0) {
+                                                  handleUpdateProductRate(item.id, editRateName, priceNum, editRateKeywords);
+                                                  setEditingRateId(null);
+                                                }
+                                              }}
+                                              className="px-2 py-1 text-[9px] text-white bg-sky-600 hover:bg-sky-500 rounded flex items-center gap-1 font-bold cursor-pointer"
+                                            >
+                                              <Check className="h-2.5 w-2.5" />
+                                              <span>{isBangla ? 'সেভ' : 'Save'}</span>
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center justify-between gap-1.5">
+                                          {/* Left: Product Name */}
+                                          <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+                                            <span 
+                                              onClick={() => {
+                                                setActiveProfitCalcProduct(item);
+                                                setProfitInput('');
+                                              }}
+                                              className="font-bold text-slate-800 text-[10px] sm:text-xs cursor-pointer hover:text-sky-600 transition-colors whitespace-nowrap block leading-tight"
+                                              title={isBangla ? 'লাভ হিসাব করতে ক্লিক করুন' : 'Click to calculate profit'}
+                                            >
+                                              {item.name}
+                                            </span>
+                                          </div>
+
+                                          {/* Right: Cost Price & Actions */}
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <span className="font-extrabold text-slate-950 text-[10px] sm:text-xs font-sans">
+                                              {formatCurrency(item.buyingPrice, isBangla)}
+                                            </span>
+                                            <div className="h-3 w-[1px] bg-slate-200" />
+                                            <div className="flex items-center gap-0.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setEditingRateId(item.id);
+                                                  setEditRateName(item.name);
+                                                  setEditRatePrice(String(item.buyingPrice));
+                                                  setEditRateKeywords(item.keywords || '');
+                                                }}
+                                                className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors cursor-pointer shrink-0"
+                                                title={isBangla ? 'পরিবর্তন করুন' : 'Edit'}
+                                              >
+                                                <Edit2 className="h-3 w-3" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setEditingRateId(null);
+                                                  setConfirmModal({
+                                                    isOpen: true,
+                                                    title: isBangla ? 'পণ্যের রেট মুছুন' : 'Delete Product Rate',
+                                                    message: isBangla 
+                                                      ? `আপনি কি নিশ্চিতভাবে "${item.name}"-এর রেট মুছে ফেলতে চান?` 
+                                                      : `Are you sure you want to delete the rate for "${item.name}"?`,
+                                                    onConfirm: () => handleDeleteProductRate(item.id)
+                                                  });
+                                                }}
+                                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer shrink-0"
+                                                title={isBangla ? 'মুছে ফেলুন' : 'Delete'}
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {/* See More Button */}
+                              {filteredRates.length > 8 && (
+                                <div className="flex justify-center pt-4 border-t border-slate-100 mt-4">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowAllRates(!showAllRates)}
+                                    className="px-4 py-1.5 text-xs text-sky-700 hover:text-white bg-sky-50 hover:bg-sky-600 rounded-xl border border-sky-100 transition-all font-extrabold cursor-pointer shadow-3xs flex items-center justify-center gap-1 active:scale-95"
+                                  >
+                                    {showAllRates 
+                                      ? (isBangla ? 'কম দেখান' : 'Show Less') 
+                                      : (isBangla ? 'আরো দেখুন' : 'Show More')}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {activeInfoTab === 'dues' && (
+                  <motion.div
+                    key="dues-tab-panel"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                    className="flex-1 flex flex-col justify-between"
+                  >
+                    {/* Header inside Card */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="p-1.5 bg-rose-50 rounded-lg text-rose-700 shrink-0">
+                          <User className="h-4 w-4" />
+                        </span>
+                        <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                          {isBangla ? 'গ্রাহকদের বাকির তালিকা' : 'Customer Due List'}
+                        </h3>
+                      </div>
+                      
+                      <div className="flex items-center justify-between sm:justify-end gap-2.5 w-full sm:w-auto">
+                        <div className="flex items-center gap-1.5 bg-rose-50/60 px-2.5 py-1 rounded-full border border-rose-100/50">
+                          <span className="text-xs font-black text-rose-800 font-sans">
+                            {isBangla ? toBanglaNumber(customerDues.length) : customerDues.length}
+                          </span>
+                          <span className="text-[10px] text-rose-700/80 font-bold">
+                            {isBangla ? 'জন ক্রেতা' : 'customers'}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setIsAddDueModalOpen(true)}
+                          className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-rose-700 to-rose-800 hover:from-rose-800 hover:to-rose-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
+                        >
+                          <Plus className="h-3.5 w-3.5 stroke-[3]" />
+                          <span>{isBangla ? 'যোগ করুন' : 'Add New'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tab Specific Content */}
+                    <div className="flex-1 flex flex-col justify-between">
+                      <DueList
+                        dueList={customerDues}
+                        isBangla={isBangla}
+                        onDeposit={handleDueDeposit}
+                        onDelete={handleDeleteCustomerDues}
+                        onRename={handleRenameCustomerDues}
+                        onViewDetail={setSelectedCustomerForDetail}
+                        transactions={transactions}
+                        onDeleteTransaction={handleDeleteTransaction}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+
+                {activeInfoTab === 'expenses' && (
+                  <motion.div
+                    key="expenses-tab-panel"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                    className="flex-1 flex flex-col justify-between"
+                  >
+                    {/* Header inside Card */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="p-1.5 bg-emerald-50 rounded-lg text-emerald-700 shrink-0">
+                          <Wallet className="h-4 w-4" />
+                        </span>
+                        <h3 className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                          {isBangla ? 'খরচের তালিকা ও খতিয়ান' : 'Expense Ledger List'}
+                        </h3>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-extrabold bg-emerald-100 text-emerald-850 px-2.5 py-1 rounded-full font-sans">
+                            {isBangla ? toBanglaNumber(todayExpenses.length) : todayExpenses.length}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold">
+                            {isBangla ? 'টি খতিয়ান' : 'entries'}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setIsExpenseModalOpen(true)}
+                          className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-emerald-700 to-emerald-800 hover:from-emerald-800 hover:to-emerald-900 text-white text-[11px] sm:text-xs font-black rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0"
+                        >
+                          <Plus className="h-3.5 w-3.5 stroke-[3]" />
+                          <span>{isBangla ? 'খরচ যোগ' : 'Add Expense'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tab Specific Content */}
+                    <div className="flex-1 flex flex-col justify-between">
+                      <ExpenseList
+                        expenses={todayExpenses}
+                        isBangla={isBangla}
+                        onDelete={handleDeleteExpense}
+                        onUpdate={handleUpdateExpense}
+                        todayExpenseTotal={todayExpenseTotal}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </motion.div>
         )}
@@ -3750,7 +3919,7 @@ export default function App() {
                         key={period}
                         type="button"
                         onClick={() => setWeeklyPeriod(period)}
-                        className="relative px-2.5 py-0.5 text-[10px] font-black transition-all duration-300 rounded-full cursor-pointer focus:outline-hidden"
+                        className="relative px-2.5 py-0.5 text-[10px] font-black transition-all duration-[270ms] rounded-full cursor-pointer focus:outline-hidden"
                       >
                         {isActive && (
                           <motion.div
@@ -5599,15 +5768,18 @@ export default function App() {
       </main>
 
       {/* --- FLOATING CALC OVERLAY SIDEBAR DRAWER --- */}
-      <Calculator
-        isOpen={isCalcOpen}
-        onClose={() => setIsCalcOpen(false)}
-        isBangla={isBangla}
-        onApplyValue={(val) => {
-          setAmount(String(val));
-          showToast(isBangla ? 'হিসাবটি দামের ঘরে বসানো হয়েছে!' : 'Amount pasted successfully!');
-        }}
-      />
+      <AnimatePresence>
+        {isCalcOpen && (
+          <Calculator
+            onClose={() => setIsCalcOpen(false)}
+            isBangla={isBangla}
+            onApplyValue={(val) => {
+              setAmount(String(val));
+              showToast(isBangla ? 'হিসাবটি দামের ঘরে বসানো হয়েছে!' : 'Amount pasted successfully!');
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* --- CLOUD SYNC MODAL OVERLAY DIALOG --- */}
       <AnimatePresence>
@@ -6692,7 +6864,6 @@ export default function App() {
                     onChange={(e) => setOosItemName(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     id="oos-item-name-input"
-                    autoFocus
                   />
                 </div>
 
@@ -6765,7 +6936,6 @@ export default function App() {
                     onChange={(e) => setRateItemName(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
                     id="rate-item-name-input"
-                    autoFocus
                   />
                 </div>
 
@@ -7481,69 +7651,73 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* --- PERSISTENT STICKY BOTTOM NAVIGATION BAR --- */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/60 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] px-2 py-2 pb-4">
+      {/* --- PERSISTENT BOTTOM NAVIGATION BAR --- */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] py-3 px-4 rounded-t-[24px]" id="persistent-bottom-nav">
         <div className="max-w-md mx-auto grid grid-cols-4 gap-1.5 text-center">
-          <button
+          <motion.button
+            whileTap={{ scale: 0.94 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
             onClick={() => setCurrentNavTab('home')}
-            onTouchStart={() => setCurrentNavTab('home')}
-            className={`flex flex-col items-center justify-center gap-1.5 transition-all duration-75 py-2 px-1 rounded-2xl cursor-pointer w-full border ${
+            className={`flex flex-col items-center justify-center gap-1 transition-all duration-[270ms] py-2 px-1 rounded-[18px] cursor-pointer w-full border ${
               currentNavTab === 'home'
-                ? 'text-indigo-600 bg-indigo-50 border-indigo-100 shadow-3xs font-bold scale-102'
+                ? 'text-indigo-600 bg-indigo-50/80 border-indigo-100 shadow-3xs font-black'
                 : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-transparent'
             }`}
           >
-            <Home className={`h-5 w-5 transition-transform duration-75 ${currentNavTab === 'home' ? 'scale-105 stroke-[2.5]' : 'stroke-[2]'}`} />
+            <Home className={`h-5 w-5 transition-transform duration-[270ms] ${currentNavTab === 'home' ? 'scale-105 stroke-[2.5]' : 'stroke-[2]'}`} />
             <span className="text-[10px] font-black truncate w-full text-center">
               {isBangla ? 'হোম' : 'Home'}
             </span>
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.94 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
             onClick={() => setCurrentNavTab('info')}
-            onTouchStart={() => setCurrentNavTab('info')}
-            className={`flex flex-col items-center justify-center gap-1.5 transition-all duration-75 py-2 px-1 rounded-2xl cursor-pointer w-full border ${
+            className={`flex flex-col items-center justify-center gap-1 transition-all duration-[270ms] py-2 px-1 rounded-[18px] cursor-pointer w-full border ${
               currentNavTab === 'info'
-                ? 'text-amber-600 bg-amber-50 border-amber-100 shadow-3xs font-bold scale-102'
+                ? 'text-amber-600 bg-amber-50/80 border-amber-100 shadow-3xs font-black'
                 : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-transparent'
             }`}
             id="info-nav-tab"
           >
-            <Info className={`h-5 w-5 transition-transform duration-75 ${currentNavTab === 'info' ? 'scale-105 stroke-[2.5]' : 'stroke-[2]'}`} />
+            <Info className={`h-5 w-5 transition-transform duration-[270ms] ${currentNavTab === 'info' ? 'scale-105 stroke-[2.5]' : 'stroke-[2]'}`} />
             <span className="text-[10px] font-black truncate w-full text-center">
               {isBangla ? 'সার্ভিস' : 'Service'}
             </span>
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.94 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
             onClick={() => setCurrentNavTab('monthly')}
-            onTouchStart={() => setCurrentNavTab('monthly')}
-            className={`flex flex-col items-center justify-center gap-1.5 transition-all duration-75 py-2 px-1 rounded-2xl cursor-pointer w-full border ${
+            className={`flex flex-col items-center justify-center gap-1 transition-all duration-[270ms] py-2 px-1 rounded-[18px] cursor-pointer w-full border ${
               currentNavTab === 'monthly'
-                ? 'text-emerald-600 bg-emerald-50 border-emerald-100 shadow-3xs font-bold scale-102'
+                ? 'text-emerald-600 bg-emerald-50/80 border-emerald-100 shadow-3xs font-black'
                 : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-transparent'
             }`}
           >
-            <Database className={`h-5 w-5 transition-transform duration-75 ${currentNavTab === 'monthly' ? 'scale-105 stroke-[2.5]' : 'stroke-[2]'}`} />
+            <Database className={`h-5 w-5 transition-transform duration-[270ms] ${currentNavTab === 'monthly' ? 'scale-105 stroke-[2.5]' : 'stroke-[2]'}`} />
             <span className="text-[10px] font-black truncate w-full text-center">
               {isBangla ? 'রিপোর্ট' : 'Report'}
             </span>
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.94 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
             onClick={() => setCurrentNavTab('settings')}
-            onTouchStart={() => setCurrentNavTab('settings')}
-            className={`flex flex-col items-center justify-center gap-1.5 transition-all duration-75 py-2 px-1 rounded-2xl cursor-pointer w-full border ${
+            className={`flex flex-col items-center justify-center gap-1 transition-all duration-[270ms] py-2 px-1 rounded-[18px] cursor-pointer w-full border ${
               currentNavTab === 'settings'
-                ? 'text-rose-600 bg-rose-50 border-rose-100 shadow-3xs font-bold scale-102'
+                ? 'text-rose-600 bg-rose-50/80 border-rose-100 shadow-3xs font-black'
                 : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-transparent'
             }`}
           >
-            <SettingsIcon className={`h-5 w-5 transition-transform duration-75 ${currentNavTab === 'settings' ? 'scale-105 stroke-[2.5]' : 'stroke-[2]'}`} />
+            <SettingsIcon className={`h-5 w-5 transition-transform duration-[270ms] ${currentNavTab === 'settings' ? 'scale-105 stroke-[2.5]' : 'stroke-[2]'}`} />
             <span className="text-[10px] font-black truncate w-full text-center">
               {isBangla ? 'সেটিংস' : 'Settings'}
             </span>
-          </button>
+          </motion.button>
         </div>
       </div>
 

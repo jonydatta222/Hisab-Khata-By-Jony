@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import { X, Plus, Minus, Equal, Calculator as CalcIcon, Delete, Trash2 } from 'lucide-react';
 
 interface CalculatorProps {
-  isOpen: boolean;
   onClose: () => void;
   isBangla: boolean;
   onApplyValue: (val: number) => void;
 }
 
-export default function Calculator({ isOpen, onClose, isBangla, onApplyValue }: CalculatorProps) {
+export default function Calculator({ onClose, isBangla, onApplyValue }: CalculatorProps) {
   const [state, setState] = useState({
     display: '0',
     equation: '',
@@ -16,22 +16,6 @@ export default function Calculator({ isOpen, onClose, isBangla, onApplyValue }: 
   });
   
   const { display, equation, hasEvaluated } = state;
-
-  // High-performance animation states replacing Framer Motion to ensure absolutely zero lag on any device
-  const [shouldRender, setShouldRender] = useState(isOpen);
-  const [animate, setAnimate] = useState(false);
-
-  useEffect(() => {
-    if (isOpen) {
-      setShouldRender(true);
-      const timer = setTimeout(() => setAnimate(true), 16);
-      return () => clearTimeout(timer);
-    } else {
-      setAnimate(false);
-      const timer = setTimeout(() => setShouldRender(false), 120);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen]);
 
   // Safe arithmetic evaluator with percentage support
   const safeEval = (expr: string): number => {
@@ -190,26 +174,28 @@ export default function Calculator({ isOpen, onClose, isBangla, onApplyValue }: 
     return val;
   };
 
-  if (!shouldRender) return null;
-
   return (
     <>
-      {/* High-performance background overlay using CSS transitions instead of Framer Motion to prevent webview lag */}
-      <div
+      {/* Super-smooth backdrop overlay */}
+      <motion.div
         id="calc-backdrop"
-        onClick={onClose}
-        className={`fixed inset-0 bg-[#0f2d59]/40 z-40 transition-opacity duration-150 ease-out ${
-          animate ? 'opacity-100' : 'opacity-0'
-        }`}
+        onPointerDown={(e) => { e.preventDefault(); onClose(); }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.08, ease: 'linear' }}
+        className="fixed inset-0 bg-[#0f2d59]/40 z-40 cursor-pointer"
       />
 
       {/* Centered Modal with rounded corners, soft shadow and elevated design */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-        <div
+        <motion.div
           id="calc-modal"
-          className={`pointer-events-auto w-full max-w-[360px] bg-[#f0f4f9] rounded-[2.5rem] shadow-[0_24px_50px_rgba(15,45,89,0.18)] flex flex-col p-6 border border-white/80 overflow-hidden transition-all duration-150 ease-out ${
-            animate ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-4'
-          }`}
+          initial={{ opacity: 0, scale: 0.98, y: 5 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.98, y: 5 }}
+          transition={{ duration: 0.08, ease: 'easeOut' }}
+          className="pointer-events-auto w-full max-w-[360px] bg-[#f0f4f9] rounded-[2.5rem] shadow-[0_24px_50px_rgba(15,45,89,0.18)] flex flex-col p-6 border border-white/80 overflow-hidden"
         >
           {/* Header */}
           <div className="flex items-center justify-between mb-5">
@@ -222,6 +208,7 @@ export default function Calculator({ isOpen, onClose, isBangla, onApplyValue }: 
               </h3>
             </div>
             <button
+              onPointerDown={(e) => { e.preventDefault(); onClose(); }}
               onClick={onClose}
               className="p-1.5 hover:bg-slate-200/60 rounded-full transition-colors text-slate-400 hover:text-slate-600 cursor-pointer"
               id="close-calc-btn"
@@ -339,7 +326,7 @@ export default function Calculator({ isOpen, onClose, isBangla, onApplyValue }: 
               )}
             </button>
           </div>
-        </div>
+        </motion.div>
       </div>
     </>
   );
