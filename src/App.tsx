@@ -39,7 +39,10 @@ import {
   Search,
   Eye,
   EyeOff,
-  ShieldCheck
+  ShieldCheck,
+  Moon,
+  Sun,
+  Monitor
 } from 'lucide-react';
 
 import { Transaction, Expense, CustomerDue, DailySummary, OutOfStockItem, ProductRateItem, MemoItem } from './types';
@@ -221,6 +224,9 @@ export default function App() {
     /Capacitor|Cordova/i.test(navigator.userAgent)
   );
   const [isBangla, setIsBangla] = useState(true);
+  const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(() => {
+    return (localStorage.getItem('hisab_khata_theme_mode') as 'light' | 'dark' | 'system') || 'system';
+  });
   const [isBalancesHidden, setIsBalancesHidden] = useState<boolean>(() => {
     return localStorage.getItem('hisab_khata_balances_hidden') === 'true';
   });
@@ -881,6 +887,36 @@ export default function App() {
       setIsSyncActive(localSync === 'true');
     }
   }, []);
+
+  // --- Dark Mode Theme Application Hook ---
+  useEffect(() => {
+    const root = window.document.documentElement;
+    
+    const applyTheme = (isDark: boolean) => {
+      if (isDark) {
+        root.classList.add('dark');
+        root.style.setProperty('--background-color', '#121212');
+        root.style.setProperty('--text-color', '#ffffff');
+      } else {
+        root.classList.remove('dark');
+        root.style.setProperty('--background-color', '#ffffff');
+        root.style.setProperty('--text-color', '#000000');
+      }
+    };
+
+    if (themeMode === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      applyTheme(mediaQuery.matches);
+      
+      const listener = (e: MediaQueryListEvent) => {
+        applyTheme(e.matches);
+      };
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
+    } else {
+      applyTheme(themeMode === 'dark');
+    }
+  }, [themeMode]);
 
   const [currentUser, setCurrentUser] = useState<any>(null);
 
@@ -5276,6 +5312,7 @@ export default function App() {
                         fill="transparent"
                         stroke="#F1F5F9"
                         strokeWidth="11"
+                        className="dark-donut-bg-ring"
                       />
                       
                       {/* Rotated group to start from 12 o'clock (top) */}
@@ -5492,6 +5529,78 @@ export default function App() {
                     />
                     <p className="text-[10px] text-slate-400">
                       {isBangla ? '* এই নামটি লোগোর নিচে হোম স্ক্রিনে দেখাবে।' : '* This name will be displayed underneath the logo on header.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Theme/Dark Mode Settings Card */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">
+                    {isBangla ? 'থিম ও ডার্ক মোড সেটিংস' : 'Theme & Dark Mode Settings'}
+                  </h3>
+
+                  <div className="space-y-3">
+                    <label className="block text-xs font-bold text-slate-600">
+                      {isBangla ? 'অ্যাপের ডিসপ্লে থিম' : 'App Display Theme'}
+                    </label>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setThemeMode('light');
+                          localStorage.setItem('hisab_khata_theme_mode', 'light');
+                          showToast(isBangla ? 'লাইট মোড চালু করা হয়েছে!' : 'Light mode activated!');
+                        }}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          themeMode === 'light'
+                            ? 'bg-teal-50 border-teal-500 text-teal-700'
+                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        <Sun className="h-4 w-4 text-amber-500" />
+                        <span>{isBangla ? 'লাইট মোড' : 'Light Mode'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setThemeMode('dark');
+                          localStorage.setItem('hisab_khata_theme_mode', 'dark');
+                          showToast(isBangla ? 'ডার্ক মোড চালু করা হয়েছে!' : 'Dark mode activated!');
+                        }}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          themeMode === 'dark'
+                            ? 'bg-teal-50 border-teal-500 text-teal-700'
+                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        <Moon className="h-4 w-4 text-indigo-500" />
+                        <span>{isBangla ? 'ডার্ক মোড' : 'Dark Mode'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setThemeMode('system');
+                          localStorage.setItem('hisab_khata_theme_mode', 'system');
+                          showToast(isBangla ? 'সিস্টেম অটো মোড চালু করা হয়েছে!' : 'System Auto mode activated!');
+                        }}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          themeMode === 'system'
+                            ? 'bg-teal-50 border-teal-500 text-teal-700'
+                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        <Monitor className="h-4 w-4 text-emerald-500" />
+                        <span>{isBangla ? 'অটো (সিস্টেম)' : 'Auto (System)'}</span>
+                      </button>
+                    </div>
+
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      {isBangla 
+                        ? '* অটো মোড অন রাখলে আপনার মোবাইলের থিমের সাথে সাথে অ্যাপের থিমও স্বয়ংক্রিয়ভাবে পরিবর্তিত হয়ে যাবে।' 
+                        : '* Setting to Auto (System) will automatically sync the app theme with your device\'s default dark or light settings.'}
                     </p>
                   </div>
                 </div>
