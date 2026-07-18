@@ -11,7 +11,7 @@ interface TransactionListProps {
   onUpdate: (updated: Transaction) => void;
 }
 
-export default function TransactionList({
+function TransactionList({
   transactions,
   isBangla,
   onDelete,
@@ -324,3 +324,6 @@ export default function TransactionList({
     </div>
   );
 }
+
+const TransactionListMemo = React.memo(TransactionList);
+export default TransactionListMemo;

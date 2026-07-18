@@ -747,4 +747,10 @@ html.dark {
   box-shadow: none !important;
 }
 
+/* Content Visibility rendering optimization for long scrollable elements */
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 500px;
+}
+
 

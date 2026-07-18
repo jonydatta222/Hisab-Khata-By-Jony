@@ -12,7 +12,7 @@ interface ExpenseListProps {
   todayExpenseTotal: number;
 }
 
-export default function ExpenseList({
+function ExpenseList({
   expenses,
   isBangla,
   onDelete,
@@ -214,3 +214,6 @@ export default function ExpenseList({
     </div>
   );
 }
+
+const ExpenseListMemo = React.memo(ExpenseList);
+export default ExpenseListMemo;

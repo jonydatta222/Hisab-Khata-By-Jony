@@ -15,7 +15,7 @@ interface DueListProps {
   onDeleteTransaction?: (id: string) => void;
 }
 
-export default function DueList({ 
+function DueList({ 
   dueList, 
   isBangla, 
   onDeposit, 
@@ -745,3 +745,6 @@ export default function DueList({
     </div>
   );
 }
+
+const DueListMemo = React.memo(DueList);
+export default DueListMemo;

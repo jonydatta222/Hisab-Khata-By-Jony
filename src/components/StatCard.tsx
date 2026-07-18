@@ -16,7 +16,7 @@ interface StatCardProps {
   isActive?: boolean;
 }
 
-export default function StatCard({
+function StatCard({
   title,
   amount,
   icon: Icon,
@@ -55,3 +55,6 @@ export default function StatCard({
     </motion.div>
   );
 }
+
+const StatCardMemo = React.memo(StatCard);
+export default StatCardMemo;
