@@ -9,7 +9,7 @@ interface DueListProps {
   isBangla: boolean;
   onDeposit: (customerName: string, amount: number) => void;
   onDelete: (customerName: string) => void;
-  onRename: (oldName: string, newName: string) => void;
+  onRename: (oldName: string, newName: string, newAmount?: number) => void;
   onViewDetail?: (customerName: string) => void;
   transactions?: Transaction[];
   onDeleteTransaction?: (id: string) => void;
@@ -33,6 +33,7 @@ export default function DueList({
 
   const [editingCustomer, setEditingCustomer] = useState<string | null>(null);
   const [newNameValue, setNewNameValue] = useState<string>('');
+  const [newAmountValue, setNewAmountValue] = useState<string>('');
   const [deletingCustomer, setDeletingCustomer] = useState<string | null>(null);
   const [deletingDepositId, setDeletingDepositId] = useState<string | null>(null);
 
@@ -105,6 +106,7 @@ export default function DueList({
   const startRename = (customer: CustomerDue) => {
     setEditingCustomer(customer.name);
     setNewNameValue(customer.name);
+    setNewAmountValue(customer.amount.toString());
     setDepositingCustomer(null);
     setDeletingCustomer(null);
   };
@@ -112,13 +114,16 @@ export default function DueList({
   const cancelRename = () => {
     setEditingCustomer(null);
     setNewNameValue('');
+    setNewAmountValue('');
   };
 
   const handleRenameSubmit = (oldName: string) => {
     if (!newNameValue.trim()) return;
-    onRename(oldName, newNameValue.trim());
+    const parsedAmount = parseFloat(newAmountValue);
+    onRename(oldName, newNameValue.trim(), isNaN(parsedAmount) ? undefined : parsedAmount);
     setEditingCustomer(null);
     setNewNameValue('');
+    setNewAmountValue('');
   };
 
   const startDeleteConfirm = (customer: CustomerDue) => {
@@ -147,7 +152,7 @@ export default function DueList({
   };
 
   const headerTitle = activeSubTab === 'customers'
-    ? (isBangla ? 'বাকির খাতাপত্র (গ্রাহকের তালিকা)' : 'Outstanding Dues List')
+    ? ''
     : (isBangla ? 'বকেয়া জমার খতিয়ান (ইতিহাস)' : 'Due Deposit History Ledger');
 
   const headerSubtext = activeSubTab === 'customers'
@@ -163,73 +168,83 @@ export default function DueList({
     : (isBangla ? 'ক্রেতার নাম বা বিবরণ খুঁজুন...' : 'Search by name or desc...');
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-3xs">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <div>
-          <h3 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-2">
-            <span className={activeSubTab === 'customers' ? 'text-rose-500' : 'text-emerald-500'}>●</span>
-            {headerTitle}
-          </h3>
-          <p className="text-xs text-slate-500">
-            {headerSubtext}
-          </p>
+    <div className="flex-1 flex flex-col justify-between">
+      <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-3 mb-4 pb-3 border-b border-slate-100 w-full">
+        {/* Sub-Tabs Switcher */}
+        <div className="flex justify-start gap-4">
+          <button
+            onClick={() => {
+              setActiveSubTab('customers');
+              setSearchTerm('');
+            }}
+            className={`pb-2 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+              activeSubTab === 'customers'
+                ? 'border-rose-500 text-rose-600 font-black'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <User className="h-4 w-4 shrink-0" />
+            <span>{isBangla ? 'গ্রাহকের তালিকা' : 'Customer List'}</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+              activeSubTab === 'customers' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {isBangla ? toBanglaNumber(dueList.length) : dueList.length}
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveSubTab('history');
+              setSearchTerm('');
+            }}
+            className={`pb-2 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+              activeSubTab === 'history'
+                ? 'border-emerald-500 text-emerald-600 font-black'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <History className="h-4 w-4 shrink-0" />
+            <span>{isBangla ? 'জমার ইতিহাস' : 'Deposit History'}</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+              activeSubTab === 'history' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {isBangla ? toBanglaNumber(depositTxs.length) : depositTxs.length}
+            </span>
+          </button>
         </div>
 
-        {/* Search Input */}
-        <div className="relative">
-          <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
-            <Search className="h-4 w-4" />
-          </span>
-          <input
-            type="text"
-            placeholder={searchPlaceholder}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full sm:w-56 pl-9 pr-4 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/50"
-          />
+        {/* Center Extra metrics */}
+        <div className="flex justify-center text-center py-1 md:py-0">
+          {activeSubTab === 'customers' && (
+            <span className="text-[11px] sm:text-xs md:text-[13px] font-black text-rose-700 bg-rose-50/50 px-3.5 py-1 rounded-full border border-rose-100/30 font-sans tracking-wide">
+              {isBangla 
+                ? `মোট বকেয়া: ${formatCurrency(totalOutstandingDue, true)} (${toBanglaNumber(filteredDues.length)} জন)`
+                : `Total Due: ${formatCurrency(totalOutstandingDue, false)} (${filteredDues.length} customers)`}
+            </span>
+          )}
+          {activeSubTab === 'history' && (
+            <span className="text-[11px] sm:text-xs md:text-[13px] font-black text-emerald-700 bg-emerald-50/50 px-3.5 py-1 rounded-full border border-emerald-100/30 font-sans tracking-wide">
+              {isBangla 
+                ? `মোট জমা: ${formatCurrency(totalDeposited, true)} (${toBanglaNumber(depositTxs.length)} বার)`
+                : `Total: ${formatCurrency(totalDeposited, false)} (${depositTxs.length} payments)`}
+            </span>
+          )}
         </div>
-      </div>
 
-      {/* Sub-Tabs Switcher */}
-      <div className="flex border-b border-slate-155 mb-5 gap-5">
-        <button
-          onClick={() => {
-            setActiveSubTab('customers');
-            setSearchTerm('');
-          }}
-          className={`pb-2.5 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-            activeSubTab === 'customers'
-              ? 'border-rose-500 text-rose-600'
-              : 'border-transparent text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <User className="h-4 w-4 shrink-0" />
-          <span>{isBangla ? 'গ্রাহকের তালিকা' : 'Customer List'}</span>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
-            activeSubTab === 'customers' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'
-          }`}>
-            {isBangla ? toBanglaNumber(dueList.length) : dueList.length}
-          </span>
-        </button>
-        <button
-          onClick={() => {
-            setActiveSubTab('history');
-            setSearchTerm('');
-          }}
-          className={`pb-2.5 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-            activeSubTab === 'history'
-              ? 'border-emerald-500 text-emerald-600'
-              : 'border-transparent text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <History className="h-4 w-4 shrink-0" />
-          <span>{isBangla ? 'জমার ইতিহাস' : 'Deposit History'}</span>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
-            activeSubTab === 'history' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-          }`}>
-            {isBangla ? toBanglaNumber(depositTxs.length) : depositTxs.length}
-          </span>
-        </button>
+        {/* Search */}
+        <div className="flex justify-end w-full">
+          <div className="relative w-full md:w-56">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+              <Search className="h-4 w-4" />
+            </span>
+            <input
+              type="text"
+              placeholder={searchPlaceholder}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/50 font-medium"
+            />
+          </div>
+        </div>
       </div>
 
       {activeSubTab === 'customers' ? (
@@ -262,10 +277,10 @@ export default function DueList({
                           onClick={() => onViewDetail?.(cd.name)}
                           title={isBangla ? 'বিস্তারিত খতিয়ান দেখতে ক্লিক করুন' : 'Click to view detailed ledger'}
                         >
-                          <h4 className="text-xs font-bold text-slate-800 group-hover:text-rose-600 group-hover:underline truncate" title={cd.name}>
+                          <h4 className="text-[10.5px] sm:text-[11.5px] font-black text-slate-800 group-hover:text-rose-600 group-hover:underline truncate" title={cd.name}>
                             {cd.name}
                           </h4>
-                          <div className="flex items-center gap-1 text-[10px] text-slate-500 font-bold">
+                          <div className="flex items-center gap-1 text-[9.5px] sm:text-[10px] text-slate-500 font-bold">
                             <span>{isBangla ? 'বাকি:' : 'Due:'}</span>
                             <span className="text-rose-600 font-black group-hover:text-rose-700">
                               {formatCurrency(cd.amount, isBangla)}
@@ -540,26 +555,47 @@ export default function DueList({
                 </span>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-800">
-                    {isBangla ? 'ক্রেতার নাম সংশোধন' : 'Edit Customer Name'}
+                    {isBangla ? 'ক্রেতার তথ্য সংশোধন' : 'Edit Customer Info'}
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {isBangla ? 'নাম পরিবর্তন বা সংশোধন করুন' : 'Modify customer details'}
+                    {isBangla ? 'ক্রেতার নাম এবং বকেয়া টাকার পরিমাণ সংশোধন করুন' : 'Modify customer name and outstanding due amount'}
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-600 block">
-                  {isBangla ? 'নতুন নাম লিখুন' : 'Enter New Name'}
-                </label>
-                <input
-                  type="text"
-                  placeholder={isBangla ? 'ক্রেতার নাম লিখুন' : 'Customer name'}
-                  value={newNameValue}
-                  onChange={(e) => setNewNameValue(e.target.value)}
-                  autoFocus
-                  className="w-full px-4 py-2.5 text-sm font-bold border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 shadow-3xs"
-                />
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-600 block">
+                    {isBangla ? 'নতুন নাম লিখুন' : 'Enter New Name'}
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={isBangla ? 'ক্রেতার নাম লিখুন' : 'Customer name'}
+                    value={newNameValue}
+                    onChange={(e) => setNewNameValue(e.target.value)}
+                    autoFocus
+                    className="w-full px-4 py-2.5 text-sm font-bold border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 shadow-3xs"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-600 block">
+                    {isBangla ? 'বকেয়া টাকার পরিমাণ (৳)' : 'Outstanding Due Amount ($)'}
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={newAmountValue}
+                    onChange={(e) => {
+                      let val = e.target.value;
+                      if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                        val = val.replace(/^0+/, '');
+                      }
+                      setNewAmountValue(val);
+                    }}
+                    className="w-full px-4 py-2.5 text-sm font-bold border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 shadow-3xs font-sans"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-3 pt-2">
@@ -575,7 +611,7 @@ export default function DueList({
                   onClick={() => handleRenameSubmit(editingCustomer)}
                   className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl cursor-pointer transition-all active:scale-98 shadow-sm"
                 >
-                  {isBangla ? 'নাম সংরক্ষণ করুন' : 'Save Name'}
+                  {isBangla ? 'সংরক্ষণ করুন' : 'Save Changes'}
                 </button>
               </div>
             </motion.div>
