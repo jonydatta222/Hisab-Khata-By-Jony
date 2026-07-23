@@ -45,7 +45,8 @@ import {
   Sun,
   Monitor,
   Printer,
-  Store
+  Store,
+  BookOpen
 } from 'lucide-react';
 
 import { Transaction, Expense, CustomerDue, DailySummary, OutOfStockItem, ProductRateItem, MemoItem } from './types';
@@ -93,6 +94,7 @@ import TransactionList from './components/TransactionList';
 import DueList from './components/DueList';
 import ExpenseList from './components/ExpenseList';
 import MemoTab from './components/MemoTab';
+import UserGuide from './components/UserGuide';
 
 // Helpers for Peak Hour and Peak Day Analysis
 const getHourString = (h: number | null, isBangla: boolean) => {
@@ -365,7 +367,8 @@ export default function App() {
   const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
-  const [historyVisibleLimit, setHistoryVisibleLimit] = useState(25);
+  const [historyVisibleLimit, setHistoryVisibleLimit] = useState(100);
+  const [selectedProductHistoryModal, setSelectedProductHistoryModal] = useState<any | null>(null);
   const [modalSearchQuery, setModalSearchQuery] = useState('');
   const [depositingCustomerName, setDepositingCustomerName] = useState<string | null>(null);
   const [modalDepositValue, setModalDepositValue] = useState('');
@@ -795,7 +798,7 @@ export default function App() {
   const [editRatePrice, setEditRatePrice] = useState('');
   const [editRateKeywords, setEditRateKeywords] = useState('');
   const [activeInfoTab, setActiveInfoTab] = useState<'oos' | 'rates' | 'dues' | 'expenses'>('oos');
-  const [settingsSubTab, setSettingsSubTab] = useState<'store' | 'sync' | 'history' | 'memo'>('store');
+  const [settingsSubTab, setSettingsSubTab] = useState<'store' | 'sync' | 'history' | 'memo' | 'guide'>('store');
   const [leastSoldSubTab, setLeastSoldSubTab] = useState<'once' | 'twice'>('once');
   const [mostSoldSubTab, setMostSoldSubTab] = useState<'top10' | 'top20'>('top10');
   const [confirmModal, setConfirmModal] = useState<{
@@ -1273,7 +1276,8 @@ export default function App() {
       selectedProductForDetail !== null ||
       editingRateId !== null ||
       editingOosId !== null ||
-      selectedCalendarDayData !== null
+      selectedCalendarDayData !== null ||
+      selectedProductHistoryModal !== null
     );
 
     if (isModalOpen) {
@@ -1308,7 +1312,8 @@ export default function App() {
     selectedProductForDetail,
     editingRateId,
     editingOosId,
-    selectedCalendarDayData
+    selectedCalendarDayData,
+    selectedProductHistoryModal
   ]);
 
   // --- Back Button Navigation with popstate history ---
@@ -1844,6 +1849,64 @@ export default function App() {
       (tx.customer && tx.customer.toLowerCase().includes(q))
     );
   }, [soldTransactions, historySearchQuery]);
+
+  const groupedSoldTransactions = useMemo(() => {
+    const map = new Map<string, {
+      id: string;
+      product: string;
+      totalAmount: number;
+      count: number;
+      cashCount: number;
+      dueCount: number;
+      latestDate: string;
+      latestTime?: string;
+      latestTimestamp: number;
+      customers: string[];
+      transactions: typeof soldTransactions;
+    }>();
+
+    filteredSoldTransactions.forEach(tx => {
+      const key = tx.product.trim().toLowerCase();
+      const ts = getTimestamp(tx.date, tx.time);
+      const cust = tx.customer ? tx.customer.trim() : '';
+
+      if (!map.has(key)) {
+        map.set(key, {
+          id: tx.id || key,
+          product: tx.product.trim(),
+          totalAmount: tx.amount,
+          count: 1,
+          cashCount: tx.isCash ? 1 : 0,
+          dueCount: tx.isCash ? 0 : 1,
+          latestDate: tx.date,
+          latestTime: tx.time,
+          latestTimestamp: ts,
+          customers: cust ? [cust] : [],
+          transactions: [tx]
+        });
+      } else {
+        const item = map.get(key)!;
+        item.totalAmount += tx.amount;
+        item.count += 1;
+        item.transactions.push(tx);
+        if (tx.isCash) {
+          item.cashCount += 1;
+        } else {
+          item.dueCount += 1;
+        }
+        if (cust && !item.customers.includes(cust)) {
+          item.customers.push(cust);
+        }
+        if (ts > item.latestTimestamp) {
+          item.latestTimestamp = ts;
+          item.latestDate = tx.date;
+          item.latestTime = tx.time;
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.latestTimestamp - a.latestTimestamp);
+  }, [filteredSoldTransactions]);
 
   // Complete Accounts Summary calculations (all time)
   const completeAccountSummary = useMemo(() => {
@@ -5040,18 +5103,17 @@ export default function App() {
                   {/* Backdrop */}
                   <motion.div
                     initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
+                    animate={{ opacity: 0.5 }}
                     exit={{ opacity: 0 }}
                     onClick={() => setWeeklyDetailModal(null)}
-                    className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs"
+                    className="fixed inset-0 bg-black"
                   />
 
                   {/* Dialog content */}
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                    transition={{ type: 'spring', duration: 0.3 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
                     className="relative bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden border border-slate-100 flex flex-col max-h-[85vh] z-10"
                   >
                     {/* Header */}
@@ -6378,53 +6440,72 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.1, ease: 'easeOut' }}
-            className={`${(settingsSubTab === 'history' || settingsSubTab === 'memo') ? 'max-w-7xl' : 'max-w-4xl'} mx-auto w-full px-4 py-4 space-y-5 transition-all duration-300`}
+            className={`${(settingsSubTab === 'history' || settingsSubTab === 'memo' || settingsSubTab === 'guide') ? 'max-w-7xl' : 'max-w-4xl'} mx-auto w-full px-4 py-4 space-y-5 transition-all duration-300`}
           >
             {/* Settings Tab Navigation Header */}
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-3xs overflow-x-auto whitespace-nowrap scrollbar-none">
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 shadow-3xs">
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('store')}
+                  className={`py-2 px-2 text-xs font-black rounded-xl transition-all cursor-pointer text-center ${
+                    settingsSubTab === 'store'
+                      ? 'bg-white text-teal-700 shadow-3xs font-extrabold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 font-bold'
+                  }`}
+                >
+                  {isBangla ? 'সাধারণ' : 'General'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('sync')}
+                  className={`py-2 px-2 text-xs font-black rounded-xl transition-all cursor-pointer text-center ${
+                    settingsSubTab === 'sync'
+                      ? 'bg-white text-teal-700 shadow-3xs font-extrabold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 font-bold'
+                  }`}
+                >
+                  {isBangla ? 'ব্যাকআপ' : 'Backup'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('history')}
+                  className={`py-2 px-2 text-xs font-black rounded-xl transition-all cursor-pointer text-center ${
+                    settingsSubTab === 'history'
+                      ? 'bg-white text-teal-700 shadow-3xs font-extrabold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 font-bold'
+                  }`}
+                >
+                  {isBangla ? 'ইতিহাস' : 'History'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSubTab('memo')}
+                  className={`py-2 px-2 text-xs font-black rounded-xl transition-all cursor-pointer text-center ${
+                    settingsSubTab === 'memo'
+                      ? 'bg-white text-teal-700 shadow-3xs font-extrabold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 font-bold'
+                  }`}
+                >
+                  {isBangla ? 'মেমো/রশিদ' : 'Memo/Receipt'}
+                </button>
+              </div>
+
+              {/* User Guide Button - Dedicated prominent row below */}
               <button
                 type="button"
-                onClick={() => setSettingsSubTab('store')}
-                className={`flex-1 min-w-[70px] py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                  settingsSubTab === 'store'
-                    ? 'bg-white text-teal-700 shadow-3xs'
-                    : 'text-slate-500 hover:text-slate-800 font-bold'
+                onClick={() => setSettingsSubTab('guide')}
+                className={`w-full py-2.5 px-4 text-xs font-black rounded-2xl transition-all cursor-pointer flex items-center justify-center gap-2 border shadow-3xs active:scale-98 ${
+                  settingsSubTab === 'guide'
+                    ? 'bg-gradient-to-r from-teal-700 via-teal-800 to-indigo-900 text-white border-teal-600 shadow-md ring-2 ring-teal-500/30'
+                    : 'bg-gradient-to-r from-teal-50 via-emerald-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800 text-teal-800 dark:text-teal-200 border-teal-200 dark:border-slate-700 hover:bg-teal-100/80'
                 }`}
               >
-                {isBangla ? 'সাধারণ' : 'General'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setSettingsSubTab('sync')}
-                className={`flex-1 min-w-[70px] py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                  settingsSubTab === 'sync'
-                    ? 'bg-white text-teal-700 shadow-3xs'
-                    : 'text-slate-500 hover:text-slate-800 font-bold'
-                }`}
-              >
-                {isBangla ? 'ব্যাকআপ' : 'Backup'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setSettingsSubTab('history')}
-                className={`flex-1 min-w-[70px] py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                  settingsSubTab === 'history'
-                    ? 'bg-white text-teal-700 shadow-3xs'
-                    : 'text-slate-500 hover:text-slate-800 font-bold'
-                }`}
-              >
-                {isBangla ? 'ইতিহাস' : 'History'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setSettingsSubTab('memo')}
-                className={`flex-1 min-w-[90px] py-2 px-3 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                  settingsSubTab === 'memo'
-                    ? 'bg-white text-teal-700 shadow-3xs'
-                    : 'text-slate-500 hover:text-slate-800 font-bold'
-                }`}
-              >
-                {isBangla ? 'মেমো/রশিদ' : 'Memo/Receipt'}
+                <BookOpen className="h-4 w-4 text-amber-500 shrink-0" />
+                <span>{isBangla ? '📖 অ্যাপস ব্যবহারিক নির্দেশিকা (A to Z টিউটোরিয়াল)' : '📖 Complete User Guide (A to Z Manual)'}</span>
+                <span className="text-[10px] font-extrabold bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full ml-1">
+                  NEW
+                </span>
               </button>
             </div>
 
@@ -6643,6 +6724,39 @@ export default function App() {
                         : '* Setting to Auto (System) will automatically sync the app theme with your device\'s default dark or light settings.'}
                     </p>
                   </div>
+                </div>
+
+                {/* User Guide Card - Prominent A-Z Manual Button */}
+                <div className="bg-gradient-to-br from-teal-700 via-teal-800 to-indigo-900 dark:from-slate-900 dark:via-teal-950 dark:to-indigo-950 p-4 rounded-2xl text-white shadow-sm space-y-3 relative overflow-hidden border border-teal-600/30">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-white/15 backdrop-blur-md rounded-xl text-amber-300 border border-white/20 shrink-0">
+                      <BookOpen className="h-6 w-6 animate-pulse" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h3 className="text-xs sm:text-sm font-black text-white">
+                          {isBangla ? 'অ্যাপস ব্যবহারিক নির্দেশিকা (A to Z)' : 'App User Manual (A to Z Guide)'}
+                        </h3>
+                        <span className="text-[9px] font-black bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full">
+                          NEW
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-teal-100/90 font-medium leading-snug mt-0.5">
+                        {isBangla
+                          ? 'কোন ফিচার কীভাবে কাজ করে, বাকির খাতা, মেমো ও ক্লাউড সিঙ্কের A to Z নিয়মাবলী।'
+                          : 'Complete tutorial on sales, dues, invoices, and cloud sync.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSettingsSubTab('guide')}
+                    className="w-full py-2.5 px-4 bg-white hover:bg-teal-50 text-teal-900 font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                  >
+                    <span>{isBangla ? 'ব্যবহারিক নির্দেশিকা পড়ুন' : 'Read User Guide'}</span>
+                    <ChevronRight className="h-4 w-4 text-teal-700" />
+                  </button>
                 </div>
               </motion.div>
             )}
@@ -7041,23 +7155,23 @@ export default function App() {
                 </div>
 
                 {/* All Sold Products History Section */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-3xs space-y-4 text-slate-800 dark:text-slate-100">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
                     <div>
-                      <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                      <h2 className="text-base font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                         <span>📦</span>
                         <span>{isBangla ? 'বিক্রিত পণ্যের সম্পূর্ণ ইতিহাস' : 'Sold Products History'}</span>
                       </h2>
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-400 dark:text-slate-400 mt-0.5">
                         {isBangla ? 'দোকানের শুরু থেকে বিক্রি হওয়া সকল পণ্যের তালিকা।' : 'All products sold from the beginning.'}
                       </p>
                     </div>
                     
-                    <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100/50 px-2.5 py-1 rounded-full shrink-0">
-                      <span className="text-xs font-black text-indigo-700 font-sans">
+                    <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-100/50 dark:border-indigo-900/50 px-2.5 py-1 rounded-full shrink-0">
+                      <span className="text-xs font-black text-indigo-700 dark:text-indigo-300 font-sans">
                         {isBangla ? toBanglaNumber(soldTransactions.length) : soldTransactions.length}
                       </span>
-                      <span className="text-[10px] text-indigo-600/95 font-bold font-sans">
+                      <span className="text-[10px] text-indigo-600/95 dark:text-indigo-400 font-bold font-sans">
                         {isBangla ? 'টি বিক্রি' : 'sales'}
                       </span>
                     </div>
@@ -7065,8 +7179,8 @@ export default function App() {
 
                   {/* Search input for History */}
                   <div className="relative w-full max-w-md mx-auto">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
-                      <Search className="h-4 w-4 text-indigo-500" />
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400 dark:text-slate-500">
+                      <Search className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
                     </span>
                     <input
                       type="text"
@@ -7074,74 +7188,88 @@ export default function App() {
                       value={historySearchQuery}
                       onChange={(e) => {
                         setHistorySearchQuery(e.target.value);
-                        setIsHistoryExpanded(false); // reset expansion when searching
+                        setHistoryVisibleLimit(100); // reset visible limit when searching
                       }}
-                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/40 font-medium"
+                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/50 dark:bg-slate-800/50 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 font-medium"
                     />
                   </div>
 
                   {/* Sold products list/table */}
-                  {filteredSoldTransactions.length === 0 ? (
-                    <div className="text-center py-12 border border-dashed border-slate-150 rounded-xl bg-slate-50/50">
-                      <p className="text-slate-400 text-xs font-bold">
+                  {groupedSoldTransactions.length === 0 ? (
+                    <div className="text-center py-12 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-800/30">
+                      <p className="text-slate-400 dark:text-slate-500 text-xs font-bold">
                         {isBangla ? 'কোনো বিক্রিত পণ্য খুঁজে পাওয়া যায়নি।' : 'No sold products match your search.'}
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      <div className={`overflow-x-auto overflow-y-auto no-scrollbar border border-slate-200 rounded-xl shadow-3xs bg-white transition-all duration-300 ${
-                        isHistoryExpanded ? 'max-h-[440px]' : ''
-                      }`}>
-                        <table className="w-full text-left border-collapse text-xs table-fixed">
-                          <thead className="sticky top-0 z-20 bg-slate-100 border-b border-slate-200">
-                            <tr className="text-slate-600 font-extrabold">
-                              <th className="py-2.5 px-2">{isBangla ? 'পণ্য' : 'Product'}</th>
-                              <th className="py-2.5 px-2 w-[70px] sm:w-[80px] text-center">{isBangla ? 'পেমেন্ট' : 'Payment'}</th>
-                              <th className="py-2.5 px-2 text-right w-[80px] sm:w-[95px]">{isBangla ? 'পরিমাণ' : 'Amount'}</th>
+                    <div className="space-y-2">
+                      <div className="overflow-x-auto overflow-y-auto max-h-[500px]">
+                        <table className="w-full text-left border-collapse text-[11px] table-fixed">
+                          <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                            <tr className="text-slate-600 dark:text-slate-300 font-extrabold text-[10.5px]">
+                              <th className="py-1.5 px-2">{isBangla ? 'পণ্য' : 'Product'}</th>
+                              <th className="py-1.5 px-1 w-[65px] sm:w-[80px] text-center">{isBangla ? 'পেমেন্ট' : 'Payment'}</th>
+                              <th className="py-1.5 px-2 text-right w-[75px] sm:w-[90px]">{isBangla ? 'পরিমাণ' : 'Amount'}</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                            {(isHistoryExpanded ? filteredSoldTransactions.slice(0, historyVisibleLimit) : filteredSoldTransactions.slice(0, 7)).map((tx, idx) => (
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium text-slate-700 dark:text-slate-200">
+                            {groupedSoldTransactions.slice(0, historyVisibleLimit).map((item, idx) => (
                               <tr 
-                                key={tx.id || idx} 
-                                className="hover:bg-slate-50/50 transition-colors"
+                                key={item.id || idx} 
+                                onClick={() => setSelectedProductHistoryModal(item)}
+                                title={isBangla ? 'বিস্তারিত বিক্রয়ের ইতিহাস দেখতে ক্লিক করুন' : 'Click to view sales history'}
+                                className="hover:bg-indigo-50/60 dark:hover:bg-slate-800/80 cursor-pointer transition-colors group"
                               >
-                                <td className="py-2 px-2">
+                                <td className="py-1 px-2 leading-tight">
                                   <div className="flex flex-col gap-0.5">
-                                    <div className="flex items-center flex-wrap gap-1.5">
-                                      <span className="font-bold text-slate-800 text-xs sm:text-[13px] break-words whitespace-normal leading-tight">
-                                        <span className="text-slate-400 mr-1.5 font-bold font-sans">
+                                    <div className="flex items-center flex-wrap gap-1">
+                                      <span className="font-bold text-slate-800 dark:text-slate-100 text-[11.5px] sm:text-xs break-words whitespace-normal leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                        <span className="text-slate-400 dark:text-slate-500 mr-1 font-bold font-sans text-[10px]">
                                           {isBangla ? toBanglaNumber(idx + 1) : idx + 1}.
                                         </span>
-                                        {tx.product}
+                                        {item.product}
                                       </span>
-                                      <span className="inline-flex items-center gap-0.5 text-[9px] text-slate-400 font-bold font-mono shrink-0">
-                                        📅 {formatDate(tx.date, isBangla, true)}
+                                      {item.count > 1 && (
+                                        <span className="inline-flex items-center px-1 py-0.1 text-[8px] sm:text-[8.5px] font-extrabold rounded bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 shrink-0">
+                                          {isBangla ? `${toBanglaNumber(item.count)} বার` : `${item.count}x`}
+                                        </span>
+                                      )}
+                                      <span className="inline-flex items-center gap-0.5 text-[8.5px] text-slate-400 dark:text-slate-500 font-semibold font-mono shrink-0">
+                                        📅 {formatDate(item.latestDate, isBangla, true)}
                                       </span>
                                     </div>
-                                    {!tx.isCash && tx.customer && (
-                                      <span className="text-[10px] text-rose-600 font-extrabold bg-rose-50 px-1.5 py-0.2 rounded w-fit border border-rose-100/40 break-words whitespace-normal leading-tight">
-                                        👤 {tx.customer}
+                                    {item.customers.length > 0 && (
+                                      <span className="text-[8.5px] text-rose-600 dark:text-rose-400 font-extrabold bg-rose-50 dark:bg-rose-950/60 px-1 py-0.1 rounded w-fit border border-rose-100/40 dark:border-rose-900/40 break-words whitespace-normal leading-tight">
+                                        👤 {item.customers.length === 1 ? item.customers[0] : `${isBangla ? toBanglaNumber(item.customers.length) : item.customers.length} জন ক্রেতা`}
                                       </span>
                                     )}
                                   </div>
                                 </td>
-                                <td className="py-2 px-2 w-[70px] sm:w-[80px] text-center">
-                                  {tx.isCash ? (
-                                    <span className="inline-flex items-center justify-center gap-0.5 text-[9px] font-black bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-100 w-full">
+                                <td className="py-1 px-1 w-[65px] sm:w-[80px] text-center align-middle">
+                                  {item.cashCount > 0 && item.dueCount === 0 ? (
+                                    <span className="inline-flex items-center justify-center gap-0.5 text-[8.5px] font-black bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-1 py-0.2 rounded border border-emerald-100 dark:border-emerald-800/60 w-full">
                                       <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
-                                      {isBangla ? 'নগদ' : 'Cash'}
+                                      {isBangla ? (item.count > 1 ? `নগদ (${toBanglaNumber(item.cashCount)})` : 'নগদ') : (item.count > 1 ? `Cash (${item.cashCount})` : 'Cash')}
+                                    </span>
+                                  ) : item.dueCount > 0 && item.cashCount === 0 ? (
+                                    <span className="inline-flex items-center justify-center gap-0.5 text-[8.5px] font-black bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-1 py-0.2 rounded border border-rose-100 dark:border-rose-800/60 w-full">
+                                      <AlertCircle className="h-2.5 w-2.5 shrink-0" />
+                                      {isBangla ? (item.count > 1 ? `বাকি (${toBanglaNumber(item.dueCount)})` : 'বাকি') : (item.count > 1 ? `Due (${item.dueCount})` : 'Due')}
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center justify-center gap-0.5 text-[9px] font-black bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded border border-rose-100 w-full">
-                                      <AlertCircle className="h-2.5 w-2.5 shrink-0" />
-                                      {isBangla ? 'বাকি' : 'Due'}
-                                    </span>
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="inline-flex items-center justify-center gap-0.5 text-[8px] font-black bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-1 py-0.2 rounded border border-emerald-100 dark:border-emerald-800/60 w-full">
+                                        {isBangla ? `নগদ (${toBanglaNumber(item.cashCount)})` : `Cash (${item.cashCount})`}
+                                      </span>
+                                      <span className="inline-flex items-center justify-center gap-0.5 text-[8px] font-black bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-1 py-0.2 rounded border border-rose-100 dark:border-rose-800/60 w-full">
+                                        {isBangla ? `বাকি (${toBanglaNumber(item.dueCount)})` : `Due (${item.dueCount})`}
+                                      </span>
+                                    </div>
                                   )}
                                 </td>
-                                <td className="py-2 px-2 text-right w-[80px] sm:w-[95px]">
-                                  <span className="font-extrabold text-slate-900 text-xs sm:text-[13px] font-sans">
-                                    {isBalancesHidden ? (isBangla ? '৳ ••••' : '$ ••••') : formatCurrency(tx.amount, isBangla)}
+                                <td className="py-1 px-2 text-right w-[75px] sm:w-[90px] align-middle">
+                                  <span className="font-extrabold text-slate-900 dark:text-slate-100 text-[11.5px] sm:text-xs font-sans">
+                                    {isBalancesHidden ? (isBangla ? '৳ ••••' : '$ ••••') : formatCurrency(item.totalAmount, isBangla)}
                                   </span>
                                 </td>
                               </tr>
@@ -7150,36 +7278,27 @@ export default function App() {
                         </table>
                       </div>
 
-                      {/* Smooth See More / See Less Buttons */}
-                      {filteredSoldTransactions.length > 7 && (
-                        <div className="flex flex-wrap justify-center gap-2 mt-4">
-                          {isHistoryExpanded && filteredSoldTransactions.length > historyVisibleLimit && (
-                            <button
-                              type="button"
-                              onClick={() => setHistoryVisibleLimit(prev => prev + 25)}
-                              className="px-4 py-1.5 text-xs text-emerald-700 hover:text-white bg-emerald-50 hover:bg-emerald-600 rounded-xl border border-emerald-100 transition-all font-extrabold cursor-pointer shadow-3xs flex items-center justify-center gap-1 active:scale-95"
-                            >
-                              {isBangla ? 'আরো লোড করুন' : 'Load More'}
-                            </button>
-                          )}
+                      {/* Load More / Show Less Buttons */}
+                      <div className="flex flex-wrap justify-center gap-2 pt-2">
+                        {groupedSoldTransactions.length > historyVisibleLimit && (
                           <button
                             type="button"
-                            onClick={() => {
-                              if (isHistoryExpanded) {
-                                setIsHistoryExpanded(false);
-                                setHistoryVisibleLimit(25);
-                              } else {
-                                setIsHistoryExpanded(true);
-                              }
-                            }}
+                            onClick={() => setHistoryVisibleLimit(prev => prev + 100)}
+                            className="px-4 py-1.5 text-xs text-emerald-700 hover:text-white bg-emerald-50 hover:bg-emerald-600 active:bg-rose-600 active:text-white active:border-rose-600 rounded-xl border border-emerald-100 transition-all font-extrabold cursor-pointer shadow-3xs flex items-center justify-center gap-1 active:scale-95"
+                          >
+                            {isBangla ? 'আরো ১০০ টি দেখুন' : 'Load 100 More'}
+                          </button>
+                        )}
+                        {historyVisibleLimit > 100 && (
+                          <button
+                            type="button"
+                            onClick={() => setHistoryVisibleLimit(100)}
                             className="px-4 py-1.5 text-xs text-indigo-700 hover:text-white bg-indigo-50 hover:bg-indigo-600 rounded-xl border border-indigo-100 transition-all font-extrabold cursor-pointer shadow-3xs flex items-center justify-center gap-1 active:scale-95"
                           >
-                            {isHistoryExpanded 
-                              ? (isBangla ? 'কম দেখান' : 'Show Less') 
-                              : (isBangla ? 'আরো দেখুন' : 'Show More')}
+                            {isBangla ? 'প্রথম ১০০ টি দেখান' : 'Show First 100'}
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -7198,6 +7317,16 @@ export default function App() {
                 initialCustomerName={initialMemoCustomer}
                 initialItems={initialMemoItems}
               />
+            )}
+
+            {settingsSubTab === 'guide' && (
+              <motion.div
+                key="guide-settings"
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <UserGuide isBangla={isBangla} />
+              </motion.div>
             )}
           </motion.div>
         )}
@@ -8582,10 +8711,10 @@ export default function App() {
               {/* Backdrop */}
               <motion.div
                 initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+                animate={{ opacity: 0.5 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setActiveCardDetailModal(null)}
-                className="fixed inset-0 bg-slate-900/65 dark:bg-black/85 backdrop-blur-[2px]"
+                className="fixed inset-0 bg-black"
               />
 
               {/* Modal Box */}
@@ -9588,7 +9717,6 @@ export default function App() {
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
               className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg shadow-2xl relative z-10 overflow-hidden border border-slate-100 dark:border-slate-800 flex flex-col max-h-[85vh]"
             >
               {/* Header */}
@@ -9736,7 +9864,6 @@ export default function App() {
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
               className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg shadow-2xl relative z-10 overflow-hidden border border-slate-100 dark:border-slate-800 flex flex-col max-h-[90vh]"
             >
               {/* Header */}
@@ -10234,7 +10361,6 @@ export default function App() {
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
               className="bg-white rounded-2xl w-full max-w-sm shadow-2xl relative z-10 overflow-hidden border border-slate-100 p-6 flex flex-col gap-4"
             >
               <div className="flex items-start gap-3">
@@ -10275,6 +10401,119 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* --- PRODUCT DETAILED HISTORY MODAL --- */}
+      <AnimatePresence>
+        {selectedProductHistoryModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedProductHistoryModal(null)}
+              className="fixed inset-0 bg-black"
+            />
+
+            {/* Modal Box */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-md shadow-2xl relative z-50 overflow-hidden border border-slate-100 dark:border-slate-800 flex flex-col max-h-[85vh] text-left text-slate-800 dark:text-slate-100"
+            >
+              {/* Header */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white flex items-center justify-between border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="space-y-1">
+                  <h3 className="font-extrabold text-sm sm:text-base flex items-center gap-2 text-slate-900 dark:text-white">
+                    <History className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <span>{selectedProductHistoryModal.product}</span>
+                  </h3>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2 flex-wrap pt-0.5">
+                    <span className="bg-indigo-50 dark:bg-slate-800 border border-indigo-100/80 dark:border-slate-700 px-2 py-0.5 rounded text-indigo-700 dark:text-indigo-300 font-bold text-[10px]">
+                      {isBangla 
+                        ? `মোট ${toBanglaNumber(selectedProductHistoryModal.count)} বার বিক্রি`
+                        : `Total ${selectedProductHistoryModal.count} sales`}
+                    </span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[11px]">
+                      {isBangla ? 'সর্বমোট: ' : 'Total: '}{formatCurrency(selectedProductHistoryModal.totalAmount, isBangla)}
+                    </span>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setSelectedProductHistoryModal(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Transactions List */}
+              <div className="p-3.5 overflow-y-auto max-h-[60vh] bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 pb-2 flex items-center justify-between">
+                  <span>{isBangla ? 'বিক্রয়ের তারিখ ও সময়সূচি:' : 'Sale Dates & Breakdown:'}</span>
+                  <span className="text-[10px] text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-100 dark:border-indigo-900/50 font-bold px-2 py-0.5 rounded-full">
+                    {isBangla ? `${toBanglaNumber(selectedProductHistoryModal.transactions.length)} টি বিক্রয় এন্ট্রি` : `${selectedProductHistoryModal.transactions.length} entries`}
+                  </span>
+                </div>
+                {selectedProductHistoryModal.transactions
+                  .slice()
+                  .sort((a: any, b: any) => getTimestamp(b.date, b.time) - getTimestamp(a.date, a.time))
+                  .map((tx: any, idx: number) => (
+                    <div 
+                      key={tx.id || idx}
+                      className="py-2.5 px-1 flex items-center justify-between gap-2.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors rounded-lg"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-extrabold text-slate-400 dark:text-slate-500 text-[10px] font-mono">
+                            #{isBangla ? toBanglaNumber(idx + 1) : idx + 1}
+                          </span>
+                          <span className="text-slate-800 dark:text-slate-200 font-bold text-[11px]">
+                            📅 {formatDate(tx.date, isBangla, true)} {tx.time ? `• ${tx.time}` : ''}
+                          </span>
+                        </div>
+                        {tx.customer && (
+                          <div className="text-[10px] font-extrabold text-rose-600 dark:text-rose-400 bg-rose-50/80 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-100/80 dark:border-rose-900/50 w-fit">
+                            👤 {tx.customer}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0 space-y-1">
+                        <span className="block font-black text-slate-900 dark:text-slate-100 text-xs sm:text-sm font-sans">
+                          {formatCurrency(tx.amount, isBangla)}
+                        </span>
+                        {tx.isCash ? (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-black text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200/60 dark:border-emerald-800/60">
+                            <CheckCircle2 className="h-2.5 w-2.5" />
+                            {isBangla ? 'নগদ' : 'Cash'}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-black text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200/60 dark:border-rose-800/60">
+                            <AlertCircle className="h-2.5 w-2.5" />
+                            {isBangla ? 'বাকি' : 'Due'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedProductHistoryModal(null)}
+                  className="px-4 py-1.5 bg-slate-900 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-3xs"
+                >
+                  {isBangla ? 'বন্ধ করুন' : 'Close'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* --- DAILY CALENDAR STATEMENT MODAL --- */}
       <AnimatePresence>
         {selectedCalendarDayData && (
@@ -10282,10 +10521,10 @@ export default function App() {
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.6 }}
+              animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedCalendarDayData(null)}
-              className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs"
+              className="fixed inset-0 bg-black"
             />
 
             {/* Modal Content */}
@@ -10293,7 +10532,6 @@ export default function App() {
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
               className="bg-white rounded-2xl w-full max-w-md shadow-2xl relative z-10 overflow-hidden border border-slate-100 flex flex-col max-h-[85vh]"
             >
               {/* Header */}

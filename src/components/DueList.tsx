@@ -451,18 +451,17 @@ function DueList({
               {/* Backdrop */}
               <motion.div
                 initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+                animate={{ opacity: 0.5 }}
                 exit={{ opacity: 0 }}
                 onClick={cancelDeposit}
-                className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+                className="fixed inset-0 bg-black"
               />
               {/* Modal Card */}
               <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                transition={{ type: 'spring', duration: 0.3 }}
-                className="bg-white w-full max-w-md rounded-2xl border border-slate-200 p-6 shadow-2xl relative z-10 space-y-4"
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative w-full max-w-md bg-white rounded-2xl shadow-xl p-6 border border-slate-100 overflow-hidden z-50 text-left space-y-4"
               >
                 <button
                   onClick={cancelDeposit}
@@ -552,18 +551,17 @@ function DueList({
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+              animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
               onClick={cancelRename}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+              className="fixed inset-0 bg-black"
             />
             {/* Modal Card */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', duration: 0.3 }}
-              className="bg-white w-full max-w-md rounded-2xl border border-slate-200 p-6 shadow-2xl relative z-10 space-y-4"
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-2xl shadow-xl p-6 border border-slate-100 overflow-hidden z-50 text-left space-y-4"
             >
               <button
                 onClick={cancelRename}
@@ -647,18 +645,17 @@ function DueList({
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+              animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
               onClick={() => setDeletingCustomer(null)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+              className="fixed inset-0 bg-black"
             />
             {/* Modal Card */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', duration: 0.3 }}
-              className="bg-white w-full max-w-sm rounded-2xl border border-slate-200 p-6 shadow-2xl relative z-10 space-y-4"
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-2xl border border-slate-200 p-6 shadow-xl z-50 text-left space-y-4"
             >
               <div className="flex justify-center">
                 <span className="p-3.5 bg-rose-50 text-rose-600 rounded-full">
@@ -709,18 +706,17 @@ function DueList({
               {/* Backdrop */}
               <motion.div
                 initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+                animate={{ opacity: 0.5 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setDeletingDepositId(null)}
-                className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+                className="fixed inset-0 bg-black"
               />
               {/* Modal Card */}
               <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                transition={{ type: 'spring', duration: 0.3 }}
-                className="bg-white w-full max-w-sm rounded-2xl border border-slate-200 p-6 shadow-2xl relative z-10 space-y-4"
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative w-full max-w-sm bg-white rounded-2xl border border-slate-200 p-6 shadow-xl z-50 text-left space-y-4"
               >
                 <div className="flex justify-center">
                   <span className="p-3.5 bg-rose-50 text-rose-600 rounded-full">
